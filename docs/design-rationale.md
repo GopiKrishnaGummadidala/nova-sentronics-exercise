@@ -164,22 +164,43 @@ without adding that back deliberately (e.g., a distinct
 ### Plain console app, not a hosted service / web API
 
 **Decision:** `NovaExercise.App` is a top-level-statements console program
-that wires up dependencies by hand and runs until Ctrl+C — no ASP.NET Core,
-no generic host, no `IHostedService`.
+that runs until Ctrl+C — no ASP.NET Core, no generic host, no
+`IHostedService`.
 
 **Why:** the actual domain is a long-lived reactive loop over sensor events,
 not request/response — there's no client making calls into this process.
-Pulling in a web/hosting framework wouldn't add a capability this problem
-needs; it would add configuration, middleware, and DI-container concepts to
-explain that don't map to anything in the business scenario. Simplicity and
-clarity are explicit evaluation criteria, and "smallest thing that models
-the domain honestly" was weighed above "looks more like a typical service."
+Pulling in a hosting framework wouldn't add a capability this problem needs;
+it would add configuration binding and middleware concepts to explain that
+don't map to anything in the business scenario. Simplicity and clarity are
+explicit evaluation criteria, and "smallest thing that models the domain
+honestly" was weighed above "looks more like a typical service."
 
-**Trade-off:** manual wiring in `Program.cs` doesn't scale gracefully much
-past the current handful of components — a real product with more moving
-parts would likely want a proper DI container at that point. For this
-scope, manual composition is more transparent (every dependency is visible
-at the call site) than a container would be.
+### Composition root uses `Microsoft.Extensions.DependencyInjection`
+
+**Decision:** `Program.cs` registers each component's interface against its
+implementation in a `ServiceCollection` and resolves `IRuleEngine` from the
+built `ServiceProvider`, rather than a chain of `new` calls.
+
+**Why:** this was originally manual construction — the reasoning was that
+~8 components is small enough that a container's main value (managing a
+large, tangled graph) doesn't really kick in, and explicit `new` calls are
+arguably *more* transparent (no runtime resolution to trace through).
+That's still true as far as it goes, but registration reads more clearly
+than an equivalent-length chain of locals once every dependency needs to be
+findable by its interface rather than by scrolling to where it was
+constructed, and `Microsoft.Extensions.DependencyInjection` costs nothing
+extra to bring in — no hosting, configuration, or middleware attached to it,
+just the container. Net effect: the object graph is still fully visible in
+one file, just declared as registrations instead of imperative statements.
+
+**Trade-off:** the two `SimulatedSensor` instances don't fit the container
+well - each needs its own `SensorType` and value-generator lambda, so
+there's no single "the" `ISensor` implementation to register. They're
+constructed directly and only the `ISensorRegistry` they're published
+through is resolved from the container. Forcing instance-specific
+configuration through DI (e.g. keyed services) would have been more
+ceremony for no real benefit - not everything needs to go through the
+container just because a container exists.
 
 ### In-memory only; audit trail is the durability story
 

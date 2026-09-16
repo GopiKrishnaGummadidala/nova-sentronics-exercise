@@ -1,11 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 
+using NovaExercise.App;
 using NovaExercise.Core.Engine;
-using NovaExercise.Core.Rules;
 using NovaExercise.Core.Sensors;
-using NovaExercise.Core.Stages;
-using NovaExercise.Core.Resources;
-using NovaExercise.Core.Logging;
 
 var cts = new CancellationTokenSource();
 
@@ -16,22 +13,13 @@ Console.CancelKeyPress += (_, e) =>
 };
 
 var services = new ServiceCollection();
-
-services.AddSingleton<ISensorRegistry, SensorRegistry>();
-services.AddSingleton<IResourceManager, ResourceManager>();
-services.AddSingleton<IStageExecutor, SimulatedStageExecutor>();
-services.AddSingleton<IStageScheduler, StageScheduler>();
-services.AddSingleton<IRuleEvaluationPolicy, UnionRuleEvaluationPolicy>();
-services.AddSingleton<IAuditLogger, AuditLogger>();
-services.AddSingleton<IReadOnlyList<StageRule>>(_ => DefaultRules.Create());
-services.AddSingleton<IRuleEngine, RuleEngine>();
+services.AddNovaExerciseServices();
 
 using var provider = services.BuildServiceProvider();
 
 // Sensors are constructed directly rather than registered in the container:
 // each SimulatedSensor instance needs its own SensorType and value-generator
-// lambda, so there's no single "the" ISensor implementation to register - a
-// container adds nothing here beyond what `new` already says directly. Only
+// lambda, so there's no single "the" ISensor implementation to register. Only
 // the registry they're published through comes from DI.
 var tempSensor = new SimulatedSensor(
     SensorType.Temperature,

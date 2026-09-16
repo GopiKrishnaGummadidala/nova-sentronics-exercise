@@ -8,7 +8,7 @@ This repository contains a reference implementation for the Nova Sentronics Seni
 - Rule engine that evaluates sensor-based conditions and schedules production stages.
 - Resource management for three shared resources (R_A, R_B, R_C) with:
   - States: Idle, Busy, Error
-  - Deadlock‑free acquisition using global lock ordering.
+  - Deadlock‑free acquisition by construction: resources are claimed atomically one at a time and rolled back on partial failure, so a request never holds one resource while waiting on another (see [docs/concurrency.md](docs/concurrency.md)).
 - Extensible design:
   - New sensors can be added via `ISensor`.
   - New rules can be added via `StageRule`.
@@ -52,10 +52,11 @@ The `NovaExercise.ConcurrencyDemos` project demonstrates how a naive resource ma
 dotnet run --project tests/NovaExercise.ConcurrencyDemos/NovaExercise.ConcurrencyDemos.csproj
 ```
 
-> **Warning:** This demo may hang due to deadlock. It is for illustration only.
+> **Warning:** This demo genuinely deadlocks by design — both threads block for the full ~5s acquisition timeout before failing. It is for illustration only.
 
 ## Documentation
 
 - [Architecture](docs/architecture.md)
 - [Concurrency Design](docs/concurrency.md)
 - [Assumptions](docs/assumptions.md)
+- [Design Rationale](docs/design-rationale.md) — why each key decision was made, and what it was chosen over

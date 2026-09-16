@@ -1,9 +1,12 @@
-using NovaExercise.Core.Resources;
+﻿using NovaExercise.Core.Resources;
 
 // This demo shows how ResourceManagerNaive can deadlock.
-// It acquires resources in different orders from two threads.
-//
-// DO NOT run this for long; it may hang. It's for demonstration only.
+// It acquires resources in different orders from two threads, each holding
+// its first resource while it blocks waiting for its second - genuine
+// hold-and-wait plus circular-wait. Expect this run to take ~5 seconds: both
+// threads block for the full acquisition timeout before failing with
+// TimeoutException. That timeout is only a safety valve for this demo - the
+// same lock pattern with Monitor.Enter (no timeout) would hang forever.
 
 var rm = new ResourceManagerNaive();
 

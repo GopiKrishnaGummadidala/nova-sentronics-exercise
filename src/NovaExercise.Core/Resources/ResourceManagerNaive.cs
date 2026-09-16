@@ -3,23 +3,34 @@ using System.Collections.Concurrent;
 namespace NovaExercise.Core.Resources;
 
 /// <summary>
-/// A naive resource manager that can deadlock.
-/// It locks resources in the order they are requested, not in a global order.
-/// With stages requiring overlapping resources, this can create circular wait.
+/// A naive resource manager that can genuinely deadlock. It locks resources in the
+/// order they are requested (not a global order) and HOLDS each lock while it waits
+/// to acquire the next one - classic hold-and-wait plus circular-wait.
 ///
 /// Example deadlock scenario:
-/// - Thread 1: acquire {R_A, R_B}  -> locks R_A, then tries to lock R_B
-/// - Thread 2: acquire {R_B, R_A}  -> locks R_B, then tries to lock R_A
-/// Both threads hold one resource and wait for the other -> deadlock.
+/// - Thread 1: acquire {R_A, R_B} -&gt; locks R_A, holds it, blocks waiting for R_B
+/// - Thread 2: acquire {R_B, R_A} -&gt; locks R_B, holds it, blocks waiting for R_A
+/// Both threads now hold one resource and wait on the other - a real deadlock.
+///
+/// It resolves after `timeout` only because Monitor.TryEnter is given a timeout as
+/// a safety valve for this demo (so it doesn't hang a reviewer's machine forever).
+/// With Monitor.Enter (no timeout) this exact code would hang indefinitely.
 ///
 /// In our stage map:
 /// - stage_1: {R_A, R_B}
 /// - stage_2: {R_C, R_B}
 /// - stage_3: {R_A, R_C}
-/// If two stages request resources in different orders, circular wait can occur.
+/// These form a cycle (A-B-C-A), which is why requesting them in inconsistent
+/// orders is enough to trigger circular wait. See tests/NovaExercise.ConcurrencyDemos.
 /// </summary>
 public sealed class ResourceManagerNaive : IResourceManager
 {
+    // Artificial gap between acquiring one lock and attempting the next, purely so
+    // the demo's interleaving is deterministic instead of a timing coin flip. Real
+    // deadlocks don't need this - the window is naturally created by whatever work
+    // happens between acquiring each lock.
+    private static readonly TimeSpan ArtificialWorkBetweenLocks = TimeSpan.FromMilliseconds(100);
+
     private readonly ConcurrentDictionary<ResourceId, Resource> _resources = new();
 
     public ResourceManagerNaive()
@@ -50,12 +61,9 @@ public sealed class ResourceManagerNaive : IResourceManager
         TimeSpan timeout,
         CancellationToken ct = default)
     {
-        // Naive: lock in the given order, not globally sorted
-        var toLock = required.ToList();
-        var acquired = new List<Resource>();
-
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
+        var toLock = required.ToList(); // Naive: order as requested, not globally sorted
+        var lockedMonitors = new List<Resource>();
+        var busyResources = new List<Resource>();
 
         try
         {
@@ -64,47 +72,46 @@ public sealed class ResourceManagerNaive : IResourceManager
                 if (!_resources.TryGetValue(id, out var resource))
                     throw new InvalidOperationException($"Unknown resource {id}");
 
-                var lockObj = resource;
+                // Held until Dispose() or the rollback below - NOT released here.
+                // This is what makes a real hold-and-wait deadlock possible.
                 bool taken = false;
-                try
-                {
-                    Monitor.TryEnter(lockObj, timeout, ref taken);
-                    if (!taken)
-                        throw new TimeoutException($"Could not acquire resource {id} in {timeout}");
+                Monitor.TryEnter(resource, timeout, ref taken);
+                if (!taken)
+                    throw new TimeoutException(
+                        $"Could not acquire resource {id} within {timeout} - likely deadlock " +
+                        "(another thread is holding it while waiting on a resource we hold)");
 
-                    if (resource.GetState() != ResourceState.Idle)
-                        throw new InvalidOperationException($"Resource {id} not idle");
+                lockedMonitors.Add(resource);
 
-                    resource.MarkBusy();
-                    acquired.Add(resource);
-                }
-                finally
-                {
-                    if (taken)
-                        Monitor.Exit(lockObj);
-                }
+                if (!resource.TryMarkBusy())
+                    throw new InvalidOperationException($"Resource {id} not idle");
+
+                busyResources.Add(resource);
+                Thread.Sleep(ArtificialWorkBetweenLocks);
             }
 
-            return new ResourceLease(acquired, toLock);
+            return new ResourceLease(lockedMonitors, busyResources);
         }
         catch
         {
-            foreach (var r in acquired)
-            {
+            foreach (var r in busyResources)
                 r.MarkIdle();
-            }
+            foreach (var r in lockedMonitors)
+                Monitor.Exit(r);
             throw;
         }
     }
 
     private sealed class ResourceLease : IDisposable
     {
-        private readonly List<Resource> _resources;
+        private readonly List<Resource> _lockedMonitors;
+        private readonly List<Resource> _busyResources;
         private int _disposed;
 
-        public ResourceLease(List<Resource> resources, List<ResourceId> order)
+        public ResourceLease(List<Resource> lockedMonitors, List<Resource> busyResources)
         {
-            _resources = resources;
+            _lockedMonitors = lockedMonitors;
+            _busyResources = busyResources;
         }
 
         public void Dispose()
@@ -112,11 +119,10 @@ public sealed class ResourceManagerNaive : IResourceManager
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
-            for (int i = _resources.Count - 1; i >= 0; i--)
-            {
-                var r = _resources[i];
-                r.MarkIdle();
-            }
+            for (int i = _busyResources.Count - 1; i >= 0; i--)
+                _busyResources[i].MarkIdle();
+            for (int i = _lockedMonitors.Count - 1; i >= 0; i--)
+                Monitor.Exit(_lockedMonitors[i]);
         }
     }
 }

@@ -12,4 +12,10 @@ public interface IAuditLogger
         IReadOnlyCollection<ResourceId> requiredResources,
         DateTimeOffset timestamp
     );
+
+    void LogStageFailed(
+        StageId stageId,
+        Exception exception,
+        DateTimeOffset timestamp
+    );
 }

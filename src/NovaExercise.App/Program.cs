@@ -1,7 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-
-using NovaExercise.Core.Engine;
+﻿using NovaExercise.Core.Engine;
 using NovaExercise.Core.Rules;
 using NovaExercise.Core.Sensors;
 using NovaExercise.Core.Stages;
@@ -33,14 +30,14 @@ registry.Register(pressureSensor);
 
 IResourceManager resourceManager = new ResourceManager();
 
+IAuditLogger audit = new AuditLogger();
 IStageExecutor executor = new SimulatedStageExecutor(resourceManager);
-IStageScheduler scheduler = new StageScheduler(executor);
+IStageScheduler scheduler = new StageScheduler(executor, audit);
 
 var rules = DefaultRules.Create();
 IRuleEvaluationPolicy policy = new UnionRuleEvaluationPolicy();
-IAuditLogger audit = new AuditLogger();
 
-using var engine = new RuleEngine(registry, rules, policy, scheduler, audit);
+using var engine = new RuleEngine(registry, rules, policy, scheduler);
 engine.Start();
 
 Console.WriteLine("System running. Press Ctrl+C to exit.");

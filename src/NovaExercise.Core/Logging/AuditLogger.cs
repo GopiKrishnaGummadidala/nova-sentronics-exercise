@@ -24,4 +24,13 @@ public sealed class AuditLogger : IAuditLogger
             $"Resources={resources}"
         );
     }
+
+    public void LogStageFailed(StageId stageId, Exception exception, DateTimeOffset timestamp)
+    {
+        Console.WriteLine(
+            $"[AUDIT] {timestamp:yyyy-MM-dd HH:mm:ss.fff} | " +
+            $"Stage={stageId} | FAILED | " +
+            $"{exception.GetType().Name}: {exception.Message}"
+        );
+    }
 }

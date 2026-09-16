@@ -1,4 +1,4 @@
-namespace NovaExercise.Core.Resources;
+﻿namespace NovaExercise.Core.Resources;
 
 public sealed class Resource
 {
@@ -32,13 +32,18 @@ public sealed class Resource
         }
     }
 
-    internal void MarkBusy()
+    /// <summary>
+    /// Atomically checks Idle and transitions to Busy in one locked step, so callers
+    /// never see a window between checking state and acting on it.
+    /// </summary>
+    internal bool TryMarkBusy()
     {
         lock (_lock)
         {
             if (State != ResourceState.Idle)
-                throw new InvalidOperationException("Resource not idle");
+                return false;
             State = ResourceState.Busy;
+            return true;
         }
     }
 

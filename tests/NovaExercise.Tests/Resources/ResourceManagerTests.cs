@@ -1,4 +1,4 @@
-using NovaExercise.Core.Resources;
+﻿using NovaExercise.Core.Resources;
 
 namespace NovaExercise.Tests.Resources;
 
@@ -38,9 +38,10 @@ public class ResourceManagerTests
         var required1 = new[] { ResourceId.R_A };
         using var lease1 = rm.Acquire(required1, TimeSpan.FromSeconds(1));
 
-        // Second acquisition tries to take R_A again -> should fail
+        // Second acquisition waits for R_A to free up, then times out since it's
+        // held by lease1 for the whole call.
         var required2 = new[] { ResourceId.R_A, ResourceId.R_B };
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<TimeoutException>(() =>
             rm.Acquire(required2, TimeSpan.FromMilliseconds(100))
         );
 

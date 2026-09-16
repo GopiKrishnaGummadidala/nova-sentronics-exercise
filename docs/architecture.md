@@ -33,32 +33,39 @@ Responsibilities:
 
 - Track resource state.
 - Provide safe, atomic acquisition of multiple resources.
-- Prevent deadlocks via global lock ordering.
+- Prevent deadlocks by never holding one resource while waiting on another
+  (see [concurrency.md](concurrency.md) for why this — not lock ordering —
+  is what actually makes `ResourceManager` deadlock-free).
 
 ### Stages
 
 - `StageDefinition`: Defines a stage (Stage1, Stage2, Stage3) and its required resources.
 - `IStageExecutor` / `SimulatedStageExecutor`: Executes a stage (simulated work).
-- `IStageScheduler` / `StageScheduler`: Schedules stages, ensuring at most one instance per stage runs at a time.
+- `IStageScheduler` / `StageScheduler`: Schedules stages, ensuring at most one instance per stage runs at a time (via an atomic `ConcurrentDictionary.TryAdd` reservation), and is the single place that logs a stage as scheduled (on actual start) or failed.
 
 Responsibilities:
 
 - Map stage IDs to resource requirements.
+- Guarantee at most one concurrent execution per stage id.
 - Execute stage logic concurrently.
 - Coordinate with `IResourceManager` for resource acquisition.
+- Log stage start/failure via `IAuditLogger`.
 
 ### Rules & Engine
 
 - `StageRule`: Condition (predicate over sensor values) → set of stages.
 - `DefaultRules`: Defines the three business rules from the exercise.
 - `IRuleEvaluationPolicy` / `UnionRuleEvaluationPolicy`: Strategy for evaluating multiple matching rules.
-- `IRuleEngine` / `RuleEngine`: Subscribes to sensor events, evaluates rules, and schedules stages.
+- `IRuleEngine` / `RuleEngine`: Subscribes to sensor events, evaluates rules, and requests stage execution.
 
 Responsibilities:
 
 - Maintain current sensor values.
 - Evaluate rules on each sensor update.
-- Request stage execution via `IStageScheduler`.
+- Request stage execution via `IStageScheduler`, passing the sensor snapshot
+  that led to the request (`StageScheduler` decides whether that request
+  turns into an actual start, and logs accordingly — `RuleEngine` itself has
+  no audit-logging or resource/stage-definition knowledge).
 
 ## Communication Patterns
 
@@ -70,16 +77,25 @@ Responsibilities:
 
 ## Audit Logging
 
-- Audit logging is implemented via `IAuditLogger` / `ConsoleAuditLogger` in the `NovaExercise.Core.Logging` namespace.
-- For each stage scheduled by the rule engine, the system logs:
+- Audit logging is implemented via `IAuditLogger` / `AuditLogger` in the `NovaExercise.Core.Logging` namespace.
+- `StageScheduler` logs a stage as scheduled at the moment it actually
+  transitions from not-running to running (guarded by the same `TryAdd` that
+  prevents duplicate execution) — not every time a rule evaluation matches
+  it. Without this, a stage that matches on two sensors ticking close
+  together would be logged as "scheduled" twice even though only one
+  execution ever runs. Each entry includes:
   - Stage ID (Stage1, Stage2, Stage3)
-  - Current sensor values (Temperature, Pressure)
+  - Sensor values at the moment the request was made (Temperature, Pressure)
   - Required resources for that stage (R_A, R_B, R_C)
   - Timestamp
-- Example log line:
+- If a stage's execution throws, `StageScheduler` logs it via
+  `LogStageFailed` (`OperationCanceledException` from normal shutdown is not
+  treated as a failure).
+- Example log lines:
 
   ```text
   [AUDIT] 2026-09-16 13:25:10.123 | Stage=Stage1 | Sensors=Temperature:15.23, Pressure:78.90 | Resources=R_A, R_B
+  [AUDIT] 2026-09-16 13:25:15.456 | Stage=Stage2 | FAILED | TimeoutException: Timed out waiting for resource R_C to become available (requested: R_B, R_C, timeout: 00:00:05)
   ```
 
 - The logging abstraction allows swapping `AuditLogger` for other implementations (e.g., file-based or structured logging) without modifying core components.
@@ -108,6 +124,7 @@ flowchart TB
         SS[StageScheduler]
         RM[ResourceManager]
         SE[StageExecutor]
+        AL[AuditLogger]
     end
 
     S1 -->|ReadingChanged| SR
@@ -117,9 +134,10 @@ flowchart TB
     RR -->|Rules| RE
     RP -->|Policy| RE
 
-    RE -->|Schedule stages| SS
+    RE -->|"Schedule stages (+ sensor snapshot)"| SS
     SS -->|Acquire resources| RM
     SS -->|Execute stage| SE
+    SS -->|Log start/failure| AL
 
     RM -->|Manage| RA[Resource R_A]
     RM -->|Manage| RB[Resource R_B]

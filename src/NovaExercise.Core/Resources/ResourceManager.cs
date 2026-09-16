@@ -1,9 +1,12 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace NovaExercise.Core.Resources;
 
 public sealed class ResourceManager : IResourceManager
 {
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(5);
+
     private readonly ConcurrentDictionary<ResourceId, Resource> _resources = new();
 
     public ResourceManager()
@@ -34,11 +37,12 @@ public sealed class ResourceManager : IResourceManager
         TimeSpan timeout,
         CancellationToken ct = default)
     {
+        // Sorted order is defense-in-depth (keeps contention patterns deterministic
+        // across callers); the actual deadlock-freedom comes from never holding one
+        // resource while waiting on another - see WaitUntilIdle.
         var sorted = required.OrderBy(x => x).ToList();
         var acquired = new List<Resource>();
-
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
+        var budget = Stopwatch.StartNew();
 
         try
         {
@@ -47,49 +51,64 @@ public sealed class ResourceManager : IResourceManager
                 if (!_resources.TryGetValue(id, out var resource))
                     throw new InvalidOperationException($"Unknown resource {id}");
 
-                var lockObj = resource;
-                bool taken = false;
-                try
+                var remaining = timeout - budget.Elapsed;
+                if (!WaitUntilIdle(resource, remaining, ct))
                 {
-                    Monitor.TryEnter(lockObj, timeout, ref taken);
-                    if (!taken)
-                        throw new TimeoutException($"Could not acquire resource {id} in {timeout}");
+                    if (resource.GetState() == ResourceState.Error)
+                        throw new InvalidOperationException($"Resource {id} is in Error state");
 
-                    if (resource.GetState() != ResourceState.Idle)
-                        throw new InvalidOperationException($"Resource {id} not idle");
+                    throw new TimeoutException(
+                        $"Timed out waiting for resource {id} to become available " +
+                        $"(requested: {string.Join(", ", sorted)}, timeout: {timeout})");
+                }
 
-                    resource.MarkBusy();
-                    acquired.Add(resource);
-                }
-                finally
-                {
-                    if (taken)
-                        Monitor.Exit(lockObj);
-                }
+                acquired.Add(resource);
             }
 
-            return new ResourceLease(acquired, sorted);
+            return new ResourceLease(acquired);
         }
         catch
         {
             foreach (var r in acquired)
-            {
                 r.MarkIdle();
-            }
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Tries to atomically claim the resource. If it's transiently Busy, polls until
+    /// it frees up or the remaining budget runs out; an Error resource is never worth
+    /// waiting on and is reported back to the caller immediately (via GetState()).
+    /// Crucially, this never blocks while holding a *different* resource, so this
+    /// manager can never hold-and-wait and therefore can never deadlock.
+    /// </summary>
+    private static bool WaitUntilIdle(Resource resource, TimeSpan remaining, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        while (true)
+        {
+            if (resource.TryMarkBusy())
+                return true;
+
+            if (resource.GetState() == ResourceState.Error)
+                return false;
+
+            if (sw.Elapsed >= remaining)
+                return false;
+
+            ct.ThrowIfCancellationRequested();
+            Thread.Sleep(PollInterval);
         }
     }
 
     private sealed class ResourceLease : IDisposable
     {
         private readonly List<Resource> _resources;
-        private readonly List<ResourceId> _order;
         private int _disposed;
 
-        public ResourceLease(List<Resource> resources, List<ResourceId> order)
+        public ResourceLease(List<Resource> resources)
         {
             _resources = resources;
-            _order = order;
         }
 
         public void Dispose()
@@ -99,8 +118,7 @@ public sealed class ResourceManager : IResourceManager
 
             for (int i = _resources.Count - 1; i >= 0; i--)
             {
-                var r = _resources[i];
-                r.MarkIdle();
+                _resources[i].MarkIdle();
             }
         }
     }

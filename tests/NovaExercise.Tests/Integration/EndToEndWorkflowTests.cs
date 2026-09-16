@@ -1,4 +1,4 @@
-using NovaExercise.Core.Engine;
+﻿using NovaExercise.Core.Engine;
 using NovaExercise.Core.Logging;
 using NovaExercise.Core.Resources;
 using NovaExercise.Core.Rules;
@@ -30,14 +30,14 @@ public class EndToEndWorkflowTests
         registry.Register(pressureSensor);
 
         var rm = new ResourceManager();
+        IAuditLogger audit = new AuditLogger();
         IStageExecutor executor = new SimulatedStageExecutor(rm);
-        IStageScheduler scheduler = new StageScheduler(executor);
+        IStageScheduler scheduler = new StageScheduler(executor, audit);
 
         var rules = DefaultRules.Create();
         IRuleEvaluationPolicy policy = new UnionRuleEvaluationPolicy();
-        IAuditLogger audit = new AuditLogger();
 
-        using var engine = new RuleEngine(registry, rules, policy, scheduler, audit);
+        using var engine = new RuleEngine(registry, rules, policy, scheduler);
 
         // Act: start engine and wait a bit for sensor events to propagate
         engine.Start();

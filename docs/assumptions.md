@@ -10,16 +10,25 @@ This document lists key assumptions made in the design and implementation.
 
 ## Stage Lifecycle
 
-- At most **one instance of a given stage** runs at any time.
+- At most **one instance of a given stage** runs at any time, enforced by an
+  atomic `ConcurrentDictionary.TryAdd` reservation in `StageScheduler` (a
+  plain check‑then‑act here would let two sensors' near‑simultaneous updates
+  both start the same stage — see [concurrency.md](concurrency.md)).
 - If a stage is already running and is requested again, the new request is ignored.
 - Running stages execute to completion even if sensor conditions change mid‑execution.
 - New sensor readings only affect **future** stage starts.
 
 ## Resource Contention
 
-- A stage waits until **all** its required resources are available.
-- Acquisition uses a timeout to avoid indefinite blocking.
-- If any required resource is in **Error** state, the stage cannot start.
+- A stage waits until **all** its required resources are available, up to a
+  single timeout **shared across the whole request** (not re‑applied in full
+  per resource — acquiring 2 resources with a 5s timeout can wait up to 5s
+  total, not 10s).
+- If a resource is transiently **Busy**, acquisition polls until it frees up
+  or the shared timeout elapses, then throws `TimeoutException`.
+- If any required resource is in **Error** state, the stage cannot start —
+  this fails immediately rather than waiting out the timeout, since retrying
+  won't help, and raises `InvalidOperationException`.
 - Resources are released immediately after stage execution completes.
 
 ## Error Handling
@@ -27,7 +36,13 @@ This document lists key assumptions made in the design and implementation.
 - If a resource enters **Error** state:
   - No new stages requiring that resource will start.
   - Running stages are allowed to complete (simplified model).
-- Exceptions in stage execution are caught and logged; they do not crash the process.
+- Exceptions in stage execution are caught inside `StageScheduler` and logged
+  via `IAuditLogger.LogStageFailed`; they do not crash the process.
+  `OperationCanceledException` is treated as expected shutdown noise and is
+  not logged as a failure. (Earlier in development this task's exceptions
+  were unobserved — the executing `Task` was stored but never awaited or
+  inspected for faults — so failures were silently dropped instead of logged;
+  this is now covered by an explicit `catch`.)
 
 ## Sensors & Extensibility
 
@@ -39,7 +54,11 @@ This document lists key assumptions made in the design and implementation.
 
 - No database or persistent storage is used.
 - The system operates entirely in memory.
-- Audit information (which stages were scheduled, sensor values at that time, and required resources) is written to the console via `AuditLogger`.
+- Audit information is written to the console via `AuditLogger`, logged by
+  `StageScheduler` at the moment a stage actually **starts** (not merely when
+  a rule matches it) — including which stage, the sensor values at that time,
+  and the required resources — plus a `LogStageFailed` entry if execution
+  throws.
 - This console-based audit logging could be replaced by a persistent logging mechanism (file, database, or centralized logging service) without changing the core logic.
 
 ## Concurrency Model

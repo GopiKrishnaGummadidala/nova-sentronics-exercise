@@ -39,6 +39,13 @@ public sealed class StageScheduler : IStageScheduler
             // rules that still pointed at an already-running stage.
             _audit.LogStageScheduled(id, sensorValues, def.RequiredResources, DateTimeOffset.Now);
 
+            // Deliberately not passing ct as Task.Run's own cancellation token: if ct
+            // were already cancelled, Task.Run would skip the delegate body entirely
+            // (verified - it returns an already-Canceled Task without ever invoking
+            // it), which would skip the finally below too and leave this stage's slot
+            // in _running permanently occupied, blocking it from ever being scheduled
+            // again. Cancellation is instead observed inside, via ExecuteAsync(def, ct),
+            // where the finally block is guaranteed to run either way.
             var task = Task.Run(async () =>
             {
                 try
@@ -57,7 +64,7 @@ public sealed class StageScheduler : IStageScheduler
                 {
                     _running.TryRemove(id, out _);
                 }
-            }, ct);
+            });
 
             _running[id] = task;
         }

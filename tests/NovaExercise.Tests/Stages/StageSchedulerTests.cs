@@ -49,6 +49,38 @@ public class StageSchedulerTests
         Assert.True(executor.TotalStarts >= 1);
     }
 
+    [Fact]
+    public async Task ScheduleStagesAsync_WithAlreadyCancelledToken_StillReleasesTheRunningSlot()
+    {
+        // Task.Run(delegate, ct) with an already-cancelled ct skips the delegate
+        // body entirely (verified separately against the BCL) - which would skip
+        // the scheduler's `finally { _running.TryRemove(...) }` too and leave this
+        // stage permanently unschedulable. A later call with a fresh token must
+        // still be able to claim and run the same stage.
+        var executor = new TrackingStageExecutor();
+        IStageScheduler scheduler = new StageScheduler(executor, new AuditLogger());
+        var sensorValues = new Dictionary<SensorType, double>();
+
+        using (var cancelledCts = new CancellationTokenSource())
+        {
+            cancelledCts.Cancel();
+            await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, cancelledCts.Token);
+        }
+
+        await Task.Delay(100); // let the cancelled attempt's finally block run
+
+        using (var freshCts = new CancellationTokenSource())
+        {
+            await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, freshCts.Token);
+        }
+
+        await Task.Delay(100); // let the second attempt actually run
+
+        // Without the fix this is 0: the first call's slot leaks, so the second
+        // call's TryAdd fails and its executor never runs either.
+        Assert.Equal(2, executor.TotalStarts);
+    }
+
     private sealed class TrackingStageExecutor : IStageExecutor
     {
         private int _current;

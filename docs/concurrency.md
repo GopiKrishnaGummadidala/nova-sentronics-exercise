@@ -118,6 +118,31 @@ operation, `_running.TryAdd(id, ...)`. `TryAdd` either claims the slot
 exclusively or fails if another caller already owns it — there is no window
 between checking and acting because there is only one call.
 
+### Cancellation Edge Case (also found in this codebase)
+
+`StageScheduler` originally passed `ct` as `Task.Run`'s own cancellation
+token, not just to the awaited work inside:
+
+```csharp
+var task = Task.Run(async () => { /* ... finally { _running.TryRemove(id, out _); } */ }, ct);
+```
+
+Verified against the BCL: if `ct` is *already* cancelled at the moment
+`Task.Run` is called, .NET returns an already‑`Canceled` `Task` **without
+ever invoking the delegate** — so the `finally` block never runs either.
+The stage's slot in `_running` is left permanently occupied, and `TryAdd`
+for that stage id fails forever after, blocking it from ever being
+scheduled again for the lifetime of that `StageScheduler`. In the current
+app this is low‑impact (the whole process exits shortly after `Stop()`),
+but it's a real, reachable bug: a sensor reading delivered after
+`RuleEngine.Stop()` cancels its token, but before `Dispose()` unsubscribes,
+carries an already‑cancelled token straight into this path.
+
+**How we fixed it:** stopped passing `ct` to `Task.Run` itself, so the
+delegate body always runs regardless of the token's state; cancellation is
+still fully honored via `await _executor.ExecuteAsync(def, ct)` inside,
+where the `finally` is guaranteed to execute either way.
+
 ### Atomicity‑Violation Example (resource state)
 
 The same bug shape applies to resource state:

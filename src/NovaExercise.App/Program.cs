@@ -23,12 +23,12 @@ using var provider = services.BuildServiceProvider();
 // the registry they're published through comes from DI.
 var tempSensor = new SimulatedSensor(
     SensorType.Temperature,
-    () => 15 + new Random().NextDouble() * 10 // 15–25 → always > 10, often > 20
+    () => 15 + Random.Shared.NextDouble() * 10 // 15–25 → always > 10, often > 20
 );
 
 var pressureSensor = new SimulatedSensor(
     SensorType.Pressure,
-    () => 40 + new Random().NextDouble() * 40 // 40–80 → always < 100, sometimes < 50
+    () => 40 + Random.Shared.NextDouble() * 40 // 40–80 → always < 100, sometimes < 50
 );
 
 var registry = provider.GetRequiredService<ISensorRegistry>();

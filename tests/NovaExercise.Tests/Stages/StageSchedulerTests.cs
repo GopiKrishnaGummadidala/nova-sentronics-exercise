@@ -130,6 +130,100 @@ public class StageSchedulerTests
         Assert.Equal(2, audit.Failures.Count);
     }
 
+    [Fact]
+    public async Task ScheduleStagesAsync_AfterABurstOfFastCompletions_TheStageIsStillSchedulable()
+    {
+        // Regression test for a race identified in review: the original code
+        // stored Task.Run's own returned handle into _running *after* calling
+        // Task.Run, rather than reserving the final dictionary value up front.
+        // Task.Run only hands that handle back to the caller after queuing the
+        // work, so a fast-completing executor's worker thread can reach its own
+        // finally { TryRemove } before this thread reaches the line that wrote
+        // the handle in - silently reinserting a now-stale entry that nothing
+        // would ever remove again, permanently blocking that stage.
+        //
+        // An executor that completes synchronously (no real await suspension) is
+        // exactly the shape needed to expose this; every other executor in this
+        // file uses Task.Delay or Task.Yield, which always yield and never could.
+        //
+        // The race needs many unpaced attempts in quick succession to show up in
+        // practice - a first attempt at this test scheduled-and-waited-for-each
+        // completion in a loop and never triggered it even against the unfixed
+        // code, because waiting between attempts gives the previous attempt's
+        // worker thread plenty of time to finish cleanly before the next one
+        // starts, closing the window this test needs open. Firing a burst with
+        // no pacing at all did trigger it reliably: against the unfixed code, the
+        // stage got permanently stuck after just 2 of 200,000 such attempts. Most
+        // burst attempts are expected to be rejected by the ordinary "at most one
+        // instance of a stage runs at a time" throttle (already covered by the
+        // concurrent-calls test above) - this test isn't checking how many of the
+        // burst actually ran, only whether the stage is still schedulable at all
+        // once it settles.
+        var executor = new InstantStageExecutor();
+        IStageScheduler scheduler = new StageScheduler(executor, new NullAuditLogger());
+        var sensorValues = new Dictionary<SensorType, double>();
+
+        for (var attempt = 0; attempt < 20_000; attempt++)
+        {
+            await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, CancellationToken.None);
+        }
+
+        // A semaphore signaled per completion isn't usable as the check here: with
+        // nothing consuming it during the burst, it would accumulate a backlog of
+        // unconsumed releases from the burst's own completions, so "wait for one
+        // completion" would succeed instantly regardless of whether a genuinely
+        // *new* attempt can still complete. Polling the counter directly avoids
+        // that - it only reports success if the count moves past whatever the
+        // burst already left it at.
+        var before = executor.Completions;
+        await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, CancellationToken.None);
+
+        var sw = Stopwatch.StartNew();
+        while (executor.Completions == before && sw.Elapsed < WaitCeiling)
+        {
+            await Task.Delay(5);
+        }
+
+        Assert.True(
+            executor.Completions > before,
+            "the stage never completed again after the burst - this is exactly the permanent lockup the race causes");
+    }
+
+    /// <summary>Completes synchronously (returns Task.CompletedTask, no await at all) -
+    /// the shape needed to expose the Task.Run-handle race described above.</summary>
+    private sealed class InstantStageExecutor : IStageExecutor
+    {
+        public int Completions;
+
+        public Task ExecuteAsync(StageDefinition stage, CancellationToken ct)
+        {
+            Interlocked.Increment(ref Completions);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class NullAuditLogger : IAuditLogger
+    {
+        public void LogStageScheduled(
+            StageId stageId,
+            IReadOnlyDictionary<SensorType, double> sensorValues,
+            IReadOnlyCollection<ResourceId> requiredResources,
+            DateTimeOffset timestamp)
+        {
+        }
+
+        public void LogStageFailed(StageId stageId, Exception exception, DateTimeOffset timestamp)
+        {
+        }
+
+        public void LogRuleEvaluationFailed(
+            Exception exception,
+            IReadOnlyDictionary<SensorType, double> sensorValues,
+            DateTimeOffset timestamp)
+        {
+        }
+    }
+
     /// <summary>Acquires resources like a real executor, then always fails - simulating
     /// a hardware fault rather than a cancellation, so cleanup on the non-cancellation
     /// exception path can be verified.</summary>

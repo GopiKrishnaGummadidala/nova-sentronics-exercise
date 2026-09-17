@@ -118,6 +118,46 @@ operation, `_running.TryAdd(id, ...)`. `TryAdd` either claims the slot
 exclusively or fails if another caller already owns it — there is no window
 between checking and acting because there is only one call.
 
+### Reservation‑Lifecycle Race (found in independent review after the fix above)
+
+The `TryAdd` fix closed the check‑then‑act window, but left a second, subtler
+one: the reserved dictionary *value* was still `Task.Run`'s own returned
+handle, written back **after** `Task.Run` was called:
+
+```csharp
+if (!_running.TryAdd(id, Task.CompletedTask))
+    continue;
+var task = Task.Run(async () => { /* ... finally { _running.TryRemove(id, out _); } */ });
+_running[id] = task; // <- Task.Run already returned; the worker may have too
+```
+
+`Task.Run` hands the caller a `Task` handle only *after* queuing the work —
+it does not wait for the worker thread to start, let alone finish. If the
+executor completes synchronously (no real `await` suspension — true for
+`Task.CompletedTask`, and therefore for any executor, including a test
+double, that never genuinely yields), the worker thread can run the whole
+delegate — including its own `finally { _running.TryRemove(id, out _) }` —
+before the scheduling thread reaches the `_running[id] = task` line above.
+That line then reinserts a now‑stale entry that nothing will ever remove
+again, permanently blocking that stage.
+
+Every executor already in this codebase (`SimulatedStageExecutor`,
+`TrackingStageExecutor`, `FailingStageExecutor`) does a real `Task.Delay` or
+`Task.Yield`, which always yields — so this specific race could not be
+triggered through any of them, and slipped past the `TryAdd` fix and its
+own regression test undetected. It needed a purpose‑built
+synchronously‑completing executor to expose: verified directly, the stage
+got permanently stuck after just 2 of 200,000 rapid, unpaced scheduling
+attempts.
+
+**How we fixed it:** reserve the *final* dictionary value up front instead
+of overwriting it after the fact. A `TaskCompletionSource` is created and
+`TryAdd`‑ed before any work starts; the actual execution — including
+`Task.Run` — happens afterward, and the same `TaskCompletionSource` is what
+gets removed from `_running` and completed in the `finally`. `TryAdd` and
+`TryRemove` are now the *only* two places that ever touch a stage's entry,
+with nothing in between that could race.
+
 ### Cancellation Edge Case (also found in this codebase)
 
 `StageScheduler` originally passed `ct` as `Task.Run`'s own cancellation
@@ -189,6 +229,7 @@ Use(resources); // may see partially initialized resources
 
 - `ResourceManagerTests` verify correct behavior under contention (e.g., failed acquisitions release all resources, busy resources cause a `TimeoutException` rather than corrupting state).
 - `StageSchedulerTests.ScheduleStagesAsync_ConcurrentCallsForSameStage_NeverRunsMoreThanOneAtOnce` fires 50 concurrent `ScheduleStagesAsync` calls for the same stage and asserts the executor never observes more than one concurrent execution — a regression test for the atomicity violation above.
+- `StageSchedulerTests.ScheduleStagesAsync_AfterABurstOfFastCompletions_TheStageIsStillSchedulable` fires 20,000 unpaced `ScheduleStagesAsync` calls against a synchronously-completing executor and asserts the stage can still complete afterward — a regression test for the reservation-lifecycle race above, which none of the other tests could reach since every other executor here genuinely yields.
 - `EndToEndWorkflowTests` exercise the full pipeline with concurrent sensor updates and stage executions.
 - `NovaExercise.ConcurrencyDemos` provides a manual, genuinely‑reproducing demonstration of deadlock with `ResourceManagerNaive`.
 

@@ -9,7 +9,7 @@ public sealed class StageScheduler : IStageScheduler
 {
     private readonly IStageExecutor _executor;
     private readonly IAuditLogger _audit;
-    private readonly ConcurrentDictionary<StageId, Task> _running = new();
+    private readonly ConcurrentDictionary<StageId, TaskCompletionSource> _running = new();
 
     public StageScheduler(IStageExecutor executor, IAuditLogger audit)
     {
@@ -24,11 +24,20 @@ public sealed class StageScheduler : IStageScheduler
     {
         foreach (var id in stageIds)
         {
-            // Reserve the slot atomically before doing any work. TryAdd either claims
-            // the id exclusively or fails if another caller already owns it, closing
-            // the ContainsKey-then-set race that let the same stage start twice when
-            // two sensors report a reading at nearly the same time.
-            if (!_running.TryAdd(id, Task.CompletedTask))
+            // The dictionary holds this placeholder for the *entire* lifetime of the
+            // execution - inserted here, removed only in ExecuteStageAsync's finally -
+            // rather than being overwritten afterward with Task.Run's own returned
+            // handle. That earlier design left a real window open: Task.Run only
+            // hands the caller a Task handle *after* queuing the work, and a
+            // fast-completing executor's worker thread can reach its own
+            // finally { TryRemove } before this thread reaches the line that writes
+            // that handle in - silently reinserting a now-stale entry that nothing
+            // will ever remove again. Verified directly: an executor returning
+            // Task.CompletedTask got permanently stuck after 2 of 200,000 attempts.
+            // Reserving the final value up front closes the window entirely - TryAdd
+            // and TryRemove are the only two places that ever touch this entry.
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!_running.TryAdd(id, completion))
                 continue;
 
             var def = GetStageDefinition(id);
@@ -39,37 +48,35 @@ public sealed class StageScheduler : IStageScheduler
             // rules that still pointed at an already-running stage.
             _audit.LogStageScheduled(id, sensorValues, def.RequiredResources, DateTimeOffset.Now);
 
-            // Deliberately not passing ct as Task.Run's own cancellation token: if ct
-            // were already cancelled, Task.Run would skip the delegate body entirely
-            // (verified - it returns an already-Canceled Task without ever invoking
-            // it), which would skip the finally below too and leave this stage's slot
-            // in _running permanently occupied, blocking it from ever being scheduled
-            // again. Cancellation is instead observed inside, via ExecuteAsync(def, ct),
-            // where the finally block is guaranteed to run either way.
-            var task = Task.Run(async () =>
-            {
-                try
-                {
-                    await _executor.ExecuteAsync(def, ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected during shutdown - not a failure worth logging.
-                }
-                catch (Exception ex)
-                {
-                    _audit.LogStageFailed(id, ex, DateTimeOffset.Now);
-                }
-                finally
-                {
-                    _running.TryRemove(id, out _);
-                }
-            });
-
-            _running[id] = task;
+            _ = Task.Run(() => ExecuteStageAsync(id, def, ct, completion));
         }
 
         return Task.CompletedTask;
+    }
+
+    private async Task ExecuteStageAsync(
+        StageId id,
+        StageDefinition def,
+        CancellationToken ct,
+        TaskCompletionSource completion)
+    {
+        try
+        {
+            await _executor.ExecuteAsync(def, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected during shutdown - not a failure worth logging.
+        }
+        catch (Exception ex)
+        {
+            _audit.LogStageFailed(id, ex, DateTimeOffset.Now);
+        }
+        finally
+        {
+            _running.TryRemove(id, out _);
+            completion.TrySetResult();
+        }
     }
 
     private static StageDefinition GetStageDefinition(StageId id)

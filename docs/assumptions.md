@@ -29,6 +29,10 @@ This document lists key assumptions made in the design and implementation.
 - If any required resource is in **Error** state, the stage cannot start —
   this fails immediately rather than waiting out the timeout, since retrying
   won't help, and raises `InvalidOperationException`.
+- An already-cancelled `CancellationToken` always throws `OperationCanceledException`
+  immediately, even if every requested resource is currently free — cancellation
+  is checked before the first acquisition attempt, not only while polling a busy
+  resource, so it can't be silently ignored by a lucky timing.
 - Resources are released immediately after stage execution completes.
 
 ## Error Handling

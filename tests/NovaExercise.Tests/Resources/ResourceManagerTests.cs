@@ -83,4 +83,40 @@ public class ResourceManagerTests
 
         Assert.Equal(ResourceState.Idle, rm.GetState(ResourceId.R_C));
     }
+
+    [Fact]
+    public void Acquire_WithAlreadyCancelledToken_ThrowsImmediately_EvenWhenResourceIsIdle()
+    {
+        var rm = new ResourceManager();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        // R_A is completely free - without an eager check, TryMarkBusy would
+        // succeed instantly and silently ignore the cancellation entirely.
+        Assert.Throws<OperationCanceledException>(() =>
+            rm.Acquire(new[] { ResourceId.R_A }, TimeSpan.FromSeconds(1), cts.Token));
+
+        Assert.Equal(ResourceState.Idle, rm.GetState(ResourceId.R_A));
+    }
+
+    [Fact]
+    public void Acquire_CancelledWhileWaitingForABusyResource_ThrowsAndRollsBackAnyAlreadyAcquired()
+    {
+        var rm = new ResourceManager();
+
+        // R_B is held for the whole test so the second Acquire has to wait on it.
+        using var holdB = rm.Acquire(new[] { ResourceId.R_B }, TimeSpan.FromSeconds(5));
+
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(TimeSpan.FromMilliseconds(50));
+
+        // Sorted acquisition order is R_A, R_B: R_A succeeds immediately, then the
+        // wait for R_B (held by holdB) gets cancelled mid-poll.
+        Assert.Throws<OperationCanceledException>(() =>
+            rm.Acquire(new[] { ResourceId.R_A, ResourceId.R_B }, TimeSpan.FromSeconds(5), cts.Token));
+
+        // R_A was acquired before cancellation hit - it must be rolled back, not left Busy.
+        Assert.Equal(ResourceState.Idle, rm.GetState(ResourceId.R_A));
+        Assert.Equal(ResourceState.Busy, rm.GetState(ResourceId.R_B)); // still held by holdB
+    }
 }

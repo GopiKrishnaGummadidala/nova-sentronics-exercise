@@ -84,6 +84,11 @@ public sealed class ResourceManager : IResourceManager
     /// </summary>
     private static bool WaitUntilIdle(Resource resource, TimeSpan remaining, CancellationToken ct)
     {
+        // Checked before the first attempt too, not just before each retry: an
+        // already-cancelled token must never silently succeed just because the
+        // resource happened to be free.
+        ct.ThrowIfCancellationRequested();
+
         var sw = Stopwatch.StartNew();
         while (true)
         {

@@ -37,7 +37,7 @@ public class EndToEndWorkflowTests
         var rules = DefaultRules.Create();
         IRuleEvaluationPolicy policy = new UnionRuleEvaluationPolicy();
 
-        using var engine = new RuleEngine(registry, rules, policy, scheduler);
+        using var engine = new RuleEngine(registry, rules, policy, scheduler, audit);
 
         // Act: start engine and wait a bit for sensor events to propagate
         engine.Start();

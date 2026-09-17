@@ -1,4 +1,6 @@
 using NovaExercise.Core.Engine;
+using NovaExercise.Core.Logging;
+using NovaExercise.Core.Resources;
 using NovaExercise.Core.Rules;
 using NovaExercise.Core.Sensors;
 using NovaExercise.Core.Stages;
@@ -30,7 +32,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler);
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
         engine.Start();
 
         tempSensor.Emit(25.0); // Pressure defaults to 0, which satisfies every "< N" condition
@@ -54,7 +56,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler);
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
         engine.Start();
 
         tempSensor.Emit(25.0);
@@ -84,7 +86,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler);
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
         engine.Start();
 
         pressureSensor.Emit(30.0); // the only *new* event after construction
@@ -111,7 +113,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler);
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
         engine.Start();
         engine.Stop();
 
@@ -132,13 +134,48 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        var engine = new RuleEngine(registry, Rules, Policy, scheduler);
+        var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
         engine.Start();
         engine.Dispose();
 
         tempSensor.Emit(25.0);
         pressureSensor.Emit(30.0);
 
+        Assert.False(await scheduler.WaitForCallAsync(TimeSpan.FromMilliseconds(300)));
+        Assert.Empty(scheduler.Calls);
+    }
+
+    [Fact]
+    public async Task EvaluateAndScheduleAsync_RuleThrows_LogsTheFailure_AndDoesNotScheduleAnything()
+    {
+        // EvaluateAndScheduleAsync's returned Task is discarded by the
+        // fire-and-forget call in OnReadingChanged - before this was fixed, a
+        // throwing rule predicate faulted that discarded Task silently, with no
+        // crash and no record anywhere. Rules are an explicit extensibility
+        // point ("new rules may be introduced"), so this is a real, reachable
+        // failure mode, not just a defensive catch.
+        var registry = new SensorRegistry();
+        var tempSensor = new FakeSensor(SensorType.Temperature);
+        var pressureSensor = new FakeSensor(SensorType.Pressure);
+        registry.Register(tempSensor);
+        registry.Register(pressureSensor);
+
+        var throwingRule = new StageRule(
+            _ => throw new InvalidOperationException("Simulated rule bug"),
+            new[] { StageId.Stage1 });
+
+        var scheduler = new RecordingStageScheduler();
+        var audit = new SpyAuditLogger();
+        using var engine = new RuleEngine(registry, new[] { throwingRule }, Policy, scheduler, audit);
+        engine.Start();
+
+        tempSensor.Emit(25.0);
+
+        Assert.True(await audit.WaitForFailureAsync(CallTimeout));
+        Assert.Equal(25.0, audit.LastFailureSensorValues![SensorType.Temperature]);
+        Assert.IsType<InvalidOperationException>(audit.LastFailureException);
+
+        // The exception happened before the scheduler was ever reached.
         Assert.False(await scheduler.WaitForCallAsync(TimeSpan.FromMilliseconds(300)));
         Assert.Empty(scheduler.Calls);
     }
@@ -202,5 +239,37 @@ public class RuleEngineTests
         }
 
         public Task<bool> WaitForCallAsync(TimeSpan timeout) => _signal.WaitAsync(timeout);
+    }
+
+    private sealed class SpyAuditLogger : IAuditLogger
+    {
+        private readonly SemaphoreSlim _signal = new(0);
+
+        public Exception? LastFailureException { get; private set; }
+        public IReadOnlyDictionary<SensorType, double>? LastFailureSensorValues { get; private set; }
+
+        public void LogStageScheduled(
+            StageId stageId,
+            IReadOnlyDictionary<SensorType, double> sensorValues,
+            IReadOnlyCollection<ResourceId> requiredResources,
+            DateTimeOffset timestamp)
+        {
+        }
+
+        public void LogStageFailed(StageId stageId, Exception exception, DateTimeOffset timestamp)
+        {
+        }
+
+        public void LogRuleEvaluationFailed(
+            Exception exception,
+            IReadOnlyDictionary<SensorType, double> sensorValues,
+            DateTimeOffset timestamp)
+        {
+            LastFailureException = exception;
+            LastFailureSensorValues = sensorValues;
+            _signal.Release();
+        }
+
+        public Task<bool> WaitForFailureAsync(TimeSpan timeout) => _signal.WaitAsync(timeout);
     }
 }

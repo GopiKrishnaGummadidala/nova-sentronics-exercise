@@ -18,4 +18,10 @@ public interface IAuditLogger
         Exception exception,
         DateTimeOffset timestamp
     );
+
+    void LogRuleEvaluationFailed(
+        Exception exception,
+        IReadOnlyDictionary<SensorType, double> sensorValues,
+        DateTimeOffset timestamp
+    );
 }

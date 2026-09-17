@@ -47,6 +47,12 @@ This document lists key assumptions made in the design and implementation.
   were unobserved — the executing `Task` was stored but never awaited or
   inspected for faults — so failures were silently dropped instead of logged;
   this is now covered by an explicit `catch`.)
+- The same class of bug existed one layer up: `RuleEngine.EvaluateAndScheduleAsync`
+  is invoked fire-and-forget (its returned `Task` is discarded), so a rule
+  predicate that throws — a real risk, since rules are an explicit
+  extensibility point — would otherwise fault that `Task` silently. Now caught
+  and logged via `IAuditLogger.LogRuleEvaluationFailed`; the reading that
+  triggered it is simply not acted on, and later readings are unaffected.
 
 ## Sensors & Extensibility
 

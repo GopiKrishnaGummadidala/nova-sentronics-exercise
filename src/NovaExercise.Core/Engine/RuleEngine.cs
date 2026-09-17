@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using NovaExercise.Core.Logging;
 using NovaExercise.Core.Rules;
 using NovaExercise.Core.Sensors;
 using NovaExercise.Core.Stages;
@@ -11,6 +12,7 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
     private readonly IReadOnlyList<StageRule> _rules;
     private readonly IRuleEvaluationPolicy _policy;
     private readonly IStageScheduler _scheduler;
+    private readonly IAuditLogger _audit;
     private readonly CancellationTokenSource _cts = new();
 
     private readonly ConcurrentDictionary<SensorType, double> _currentValues = new();
@@ -19,12 +21,14 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
         ISensorRegistry sensors,
         IReadOnlyList<StageRule> rules,
         IRuleEvaluationPolicy policy,
-        IStageScheduler scheduler)
+        IStageScheduler scheduler,
+        IAuditLogger audit)
     {
         _sensors = sensors;
         _rules = rules;
         _policy = policy;
         _scheduler = scheduler;
+        _audit = audit;
 
         foreach (var sensor in _sensors.Sensors)
         {
@@ -43,7 +47,23 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
     private async Task EvaluateAndScheduleAsync()
     {
         var values = _currentValues.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-        var stages = _policy.Evaluate(_rules, values);
+
+        IReadOnlyCollection<StageId> stages;
+        try
+        {
+            stages = _policy.Evaluate(_rules, values);
+        }
+        catch (Exception ex)
+        {
+            // EvaluateAndScheduleAsync's returned Task is discarded by the
+            // fire-and-forget call in OnReadingChanged, so an exception here
+            // would otherwise fault that Task silently - no crash, no record,
+            // nothing. Rules are an explicit extensibility point ("new rules
+            // may be introduced"), so a bug in one must not be invisible.
+            _audit.LogRuleEvaluationFailed(ex, values, DateTimeOffset.Now);
+            return;
+        }
+
         await _scheduler.ScheduleStagesAsync(stages, values, _cts.Token);
     }
 

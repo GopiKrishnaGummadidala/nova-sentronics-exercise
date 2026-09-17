@@ -33,4 +33,20 @@ public sealed class AuditLogger : IAuditLogger
             $"{exception.GetType().Name}: {exception.Message}"
         );
     }
+
+    public void LogRuleEvaluationFailed(
+        Exception exception,
+        IReadOnlyDictionary<SensorType, double> sensorValues,
+        DateTimeOffset timestamp)
+    {
+        var t = sensorValues.GetValueOrDefault(SensorType.Temperature, 0);
+        var p = sensorValues.GetValueOrDefault(SensorType.Pressure, 0);
+
+        Console.WriteLine(
+            $"[AUDIT] {timestamp:yyyy-MM-dd HH:mm:ss.fff} | " +
+            $"RuleEvaluation FAILED | " +
+            $"Sensors=Temperature:{t:F2}, Pressure:{p:F2} | " +
+            $"{exception.GetType().Name}: {exception.Message}"
+        );
+    }
 }

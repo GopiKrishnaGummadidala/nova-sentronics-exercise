@@ -173,6 +173,13 @@ public class StageSchedulerTests
             _signal.Release();
         }
 
+        public void LogRuleEvaluationFailed(
+            Exception exception,
+            IReadOnlyDictionary<SensorType, double> sensorValues,
+            DateTimeOffset timestamp)
+        {
+        }
+
         // WaitAsync, not the blocking Wait: a synchronous wait here would tie up a
         // real thread-pool thread inside an async test, and under a full parallel
         // test run that can starve the pool badly enough to blow past even a

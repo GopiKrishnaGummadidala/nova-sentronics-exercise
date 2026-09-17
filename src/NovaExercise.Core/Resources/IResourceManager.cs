@@ -2,7 +2,7 @@
 
 public interface IResourceManager
 {
-    IDisposable Acquire(
+    Task<IDisposable> AcquireAsync(
         IReadOnlyCollection<ResourceId> required,
         TimeSpan timeout,
         CancellationToken ct = default

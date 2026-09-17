@@ -32,14 +32,14 @@ public sealed class ResourceManager : IResourceManager
             r.ClearError();
     }
 
-    public IDisposable Acquire(
+    public async Task<IDisposable> AcquireAsync(
         IReadOnlyCollection<ResourceId> required,
         TimeSpan timeout,
         CancellationToken ct = default)
     {
         // Sorted order is defense-in-depth (keeps contention patterns deterministic
         // across callers); the actual deadlock-freedom comes from never holding one
-        // resource while waiting on another - see WaitUntilIdle.
+        // resource while waiting on another - see WaitUntilIdleAsync.
         var sorted = required.OrderBy(x => x).ToList();
         var acquired = new List<Resource>();
         var budget = Stopwatch.StartNew();
@@ -52,7 +52,7 @@ public sealed class ResourceManager : IResourceManager
                     throw new InvalidOperationException($"Unknown resource {id}");
 
                 var remaining = timeout - budget.Elapsed;
-                if (!WaitUntilIdle(resource, remaining, ct))
+                if (!await WaitUntilIdleAsync(resource, remaining, ct))
                 {
                     if (resource.GetState() == ResourceState.Error)
                         throw new InvalidOperationException($"Resource {id} is in Error state");
@@ -80,11 +80,13 @@ public sealed class ResourceManager : IResourceManager
     /// it frees up or the remaining budget runs out; an Error resource is never worth
     /// waiting on and is reported back to the caller immediately (via GetState()).
     /// Crucially, this never blocks while holding a *different* resource, so this
-    /// manager can never hold-and-wait and therefore can never deadlock.
+    /// manager can never hold-and-wait and therefore can never deadlock. Waiting is
+    /// done via Task.Delay rather than Thread.Sleep, so a caller polling a busy
+    /// resource frees its thread-pool thread between attempts instead of parking it.
     /// </summary>
-    private static bool WaitUntilIdle(Resource resource, TimeSpan remaining, CancellationToken ct)
+    private static async Task<bool> WaitUntilIdleAsync(Resource resource, TimeSpan remaining, CancellationToken ct)
     {
-        // Checked before the first attempt too, not just before each retry: an
+        // Checked before the first attempt too, not just while polling: an
         // already-cancelled token must never silently succeed just because the
         // resource happened to be free.
         ct.ThrowIfCancellationRequested();
@@ -101,8 +103,11 @@ public sealed class ResourceManager : IResourceManager
             if (sw.Elapsed >= remaining)
                 return false;
 
-            ct.ThrowIfCancellationRequested();
-            Thread.Sleep(PollInterval);
+            // Task.Delay itself observes ct, throwing TaskCanceledException (not the
+            // plain OperationCanceledException the eager check above throws) if
+            // cancelled here - callers matching on the exception type need
+            // ThrowsAnyAsync, not ThrowsAsync, to allow for either.
+            await Task.Delay(PollInterval, ct);
         }
     }
 

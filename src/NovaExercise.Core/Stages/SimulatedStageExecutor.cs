@@ -13,7 +13,7 @@ public sealed class SimulatedStageExecutor : IStageExecutor
 
     public async Task ExecuteAsync(StageDefinition stage, CancellationToken ct)
     {
-        using var lease = _resourceManager.Acquire(
+        using var lease = await _resourceManager.AcquireAsync(
             stage.RequiredResources,
             TimeSpan.FromSeconds(5),
             ct

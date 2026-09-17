@@ -56,10 +56,22 @@ public sealed class ResourceManagerNaive : IResourceManager
             r.ClearError();
     }
 
-    public IDisposable Acquire(
+    public Task<IDisposable> AcquireAsync(
         IReadOnlyCollection<ResourceId> required,
         TimeSpan timeout,
         CancellationToken ct = default)
+    {
+        // Monitor.TryEnter is a synchronous, thread-affine primitive with no async
+        // form - genuinely blocking a real OS thread is the entire point of this
+        // demo, since that's what makes the deadlock real rather than simulated.
+        // Task.Run only relocates which thread blocks. ct is deliberately not passed
+        // to Task.Run itself: a pre-cancelled token there would skip this delegate
+        // entirely rather than run it - the exact bug this codebase already found
+        // and fixed once in StageScheduler (see concurrency.md).
+        return Task.Run(() => AcquireCore(required, timeout));
+    }
+
+    private IDisposable AcquireCore(IReadOnlyCollection<ResourceId> required, TimeSpan timeout)
     {
         var toLock = required.ToList(); // Naive: order as requested, not globally sorted
         var lockedMonitors = new List<Resource>();

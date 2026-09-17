@@ -177,29 +177,35 @@ three rules alone demand it.
 
 ### Deadlock-freedom via "never hold-and-wait," not lock ordering
 
-**Decision:** `ResourceManager.Acquire` claims resources one at a time with
-a single atomic `Resource.TryMarkBusy()`, rolling back everything already
-claimed the moment one can't be had. It never holds one resource's lock
-while blocked waiting on another.
+**Decision:** `ResourceManager.AcquireAsync` claims resources one at a time
+with a single atomic `Resource.TryMarkBusy()`, rolling back everything
+already claimed the moment one can't be had. It never holds one resource's
+lock while blocked waiting on another.
 
 **Why:** this was originally going to be "sort resources by `ResourceId`
 and lock in that order" — the textbook fix for circular wait. But the
 resource lease has to survive an `await` in `SimulatedStageExecutor`
-(`Acquire(...)` then `await Task.Delay(...)` before releasing). `Monitor` is
-thread-affine: a lock taken before an `await` can end up released from a
-different thread after the continuation resumes on a different pool thread,
-which throws `SynchronizationLockException`. That rules out "hold a real
-lock across the whole operation" as a safe option here at all — ordering the
-locks wouldn't have mattered, because holding them was the actual problem.
-Never holding two at once sidesteps the issue entirely and happens to give a
-*stronger* guarantee than ordering: it's deadlock-free regardless of
-acquisition order, not just the order the code happens to enforce.
+(`await AcquireAsync(...)` then `await Task.Delay(...)` before releasing).
+`Monitor` is thread-affine: a lock taken before an `await` can end up
+released from a different thread after the continuation resumes on a
+different pool thread, which throws `SynchronizationLockException`. That
+rules out "hold a real lock across the whole operation" as a safe option
+here at all — ordering the locks wouldn't have mattered, because holding
+them was the actual problem. Never holding two at once sidesteps the issue
+entirely and happens to give a *stronger* guarantee than ordering: it's
+deadlock-free regardless of acquisition order, not just the order the code
+happens to enforce.
 
 **Trade-off:** giving up on "wait for a signal when a resource frees up" in
-favor of polling (`WaitUntilIdle` spins with a 5ms sleep). That's simple and
-correct at this scale (3 resources, sub-second timeouts) but wastes a thread
-under real contention; a `SemaphoreSlim`-per-resource would be the next step
-if this needed to scale to many more resources or longer waits.
+favor of polling (`WaitUntilIdleAsync` spins on `await Task.Delay(5ms, ct)`).
+Polling via `Task.Delay` rather than blocking on `Thread.Sleep` means a
+caller waiting on a busy resource no longer parks a thread-pool thread for
+the wait, but it's still not signal-based: acquiring can still take up to
+one `PollInterval` of avoidable latency after the resource actually frees
+up. Correct and cheap enough at this scale (3 resources, sub-second
+timeouts); a `SemaphoreSlim`-per-resource would be the next step if this
+needed to scale to many more resources or much tighter acquire-latency
+requirements.
 
 ### The naive manager is a real, separate class — not a comment
 

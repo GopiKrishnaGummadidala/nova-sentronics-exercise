@@ -235,7 +235,7 @@ public class StageSchedulerTests
 
         public async Task ExecuteAsync(StageDefinition stage, CancellationToken ct)
         {
-            using var lease = _resourceManager.Acquire(stage.RequiredResources, TimeSpan.FromSeconds(5), ct);
+            using var lease = await _resourceManager.AcquireAsync(stage.RequiredResources, TimeSpan.FromSeconds(5), ct);
             await Task.Yield(); // ensure this is a genuine async failure, not a synchronous throw
             throw new InvalidOperationException("Simulated hardware fault");
         }

@@ -93,7 +93,7 @@ public class StageMapResourceContentionTests
                 // that window, the tracker sees a false collision even though the
                 // real system correctly serialized access. Confirmed by observing
                 // exactly that: an intermittent false SawOverlap under load.
-                var lease = _resourceManager.Acquire(stage.RequiredResources, TimeSpan.FromSeconds(5), ct);
+                var lease = await _resourceManager.AcquireAsync(stage.RequiredResources, TimeSpan.FromSeconds(5), ct);
                 _tracker.RecordAcquired(stage.RequiredResources);
                 try
                 {

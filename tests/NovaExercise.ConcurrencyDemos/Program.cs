@@ -10,12 +10,12 @@
 
 var rm = new ResourceManagerNaive();
 
-var t1 = Task.Run(() =>
+var t1 = Task.Run(async () =>
 {
     try
     {
         Console.WriteLine("T1: trying to acquire {R_A, R_B}");
-        using var lease1 = rm.Acquire(
+        using var lease1 = await rm.AcquireAsync(
             new[] { ResourceId.R_A, ResourceId.R_B },
             TimeSpan.FromSeconds(5)
         );
@@ -29,12 +29,12 @@ var t1 = Task.Run(() =>
     }
 });
 
-var t2 = Task.Run(() =>
+var t2 = Task.Run(async () =>
 {
     try
     {
         Console.WriteLine("T2: trying to acquire {R_B, R_A}");
-        using var lease2 = rm.Acquire(
+        using var lease2 = await rm.AcquireAsync(
             new[] { ResourceId.R_B, ResourceId.R_A },
             TimeSpan.FromSeconds(5)
         );

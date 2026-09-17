@@ -81,8 +81,10 @@ Responsibilities:
   `SensorUnregistered` so `RuleEngine` can keep its own subscriptions in sync
   with the registry for as long as it runs.
 - **Dependency injection**: Components depend on interfaces (`ISensorRegistry`, `IResourceManager`, etc.), enabling testability and substitution.
-- **Synchronous acquisition, asynchronous execution**:
-  - Resource acquisition is synchronous (`IResourceManager.Acquire`).
+- **Asynchronous throughout**:
+  - Resource acquisition is asynchronous (`IResourceManager.AcquireAsync`) — a
+    caller waiting on a busy resource polls via `await Task.Delay(...)`
+    rather than blocking a thread-pool thread for the wait.
   - Stage execution is asynchronous (`Task.Run` in `StageScheduler`).
 
 ## Audit Logging

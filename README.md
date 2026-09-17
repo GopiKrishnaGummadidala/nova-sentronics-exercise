@@ -8,7 +8,8 @@ This repository contains a reference implementation for the Nova Sentronics Seni
 - Rule engine that evaluates sensor-based conditions and schedules production stages.
 - Resource management for three shared resources (R_A, R_B, R_C) with:
   - States: Idle, Busy, Error
-  - Deadlock‑free acquisition by construction: resources are claimed atomically one at a time and rolled back on partial failure, so a request never holds one resource while waiting on another (see [docs/concurrency.md](docs/concurrency.md)).
+  - Deadlock-free multi-resource acquisition by avoiding hold-and-wait,
+    with deterministic resource ordering as defense-in-depth (see [docs/concurrency.md](docs/concurrency.md)).
 - Extensible design:
   - New sensors can be added via `ISensor`.
   - New rules can be added via `StageRule`.

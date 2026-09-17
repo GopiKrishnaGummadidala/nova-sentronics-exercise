@@ -1,5 +1,7 @@
 # Nova Sentronics Exercise – Manufacturing Control System
 
+[![CI](https://github.com/GopiKrishnaGummadidala/nova-sentronics-exercise/actions/workflows/ci.yml/badge.svg)](https://github.com/GopiKrishnaGummadidala/nova-sentronics-exercise/actions/workflows/ci.yml)
+
 This repository contains a reference implementation for the Nova Sentronics Senior Software Engineer exercise. It simulates control software for an industrial manufacturing machine that executes production stages based on sensor readings.
 
 ## Features
@@ -43,7 +45,10 @@ The application runs until you press **Ctrl+C**.
 dotnet test
 ```
 
-This runs unit tests for rules, resources, stages, and an end‑to‑end workflow test.
+This runs unit tests for rules (including boundary values at each threshold),
+resources, stage scheduling, and the rule engine, plus integration tests
+covering the DI composition root, an end‑to‑end sensor‑to‑stage workflow, and
+concurrent resource contention across the full stage map.
 
 ## Concurrency Demo
 

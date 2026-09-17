@@ -9,7 +9,11 @@ public class RuleEngineTests
 {
     private static readonly IReadOnlyList<StageRule> Rules = DefaultRules.Create();
     private static readonly IRuleEvaluationPolicy Policy = new UnionRuleEvaluationPolicy();
-    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(2);
+    // A ceiling, not a typical duration - this returns as soon as its signal
+    // arrives. Widened from 2s after observing an occasional miss when the full
+    // suite runs alongside StageMapResourceContentionTests, which adds
+    // substantial real thread-pool load of its own (heavy Acquire polling).
+    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(5);
 
     [Fact]
     public async Task ReadingFromOneSensor_EvaluatesWithOtherSensorDefaultingToZero()

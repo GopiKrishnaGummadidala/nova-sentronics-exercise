@@ -8,6 +8,13 @@ namespace NovaExercise.Tests.Stages;
 
 public class StageSchedulerTests
 {
+    // A ceiling, not a typical duration - these waits return as soon as their
+    // signal arrives. Widened from 2s after observing an occasional miss when
+    // the full suite runs alongside StageMapResourceContentionTests, which adds
+    // substantial real thread-pool load of its own (heavy Acquire polling).
+    private static readonly TimeSpan WaitCeiling = TimeSpan.FromSeconds(5);
+
+
     [Fact]
     public async Task ScheduleStagesAsync_DoesNotThrowForValidStages()
     {
@@ -45,7 +52,7 @@ public class StageSchedulerTests
         await Task.WhenAll(callers);
 
         Assert.True(
-            await executor.WaitForCompletionsAsync(1, TimeSpan.FromSeconds(2)),
+            await executor.WaitForCompletionsAsync(1, WaitCeiling),
             "expected the one allowed execution to complete");
 
         Assert.Equal(1, executor.MaxConcurrent);
@@ -71,7 +78,7 @@ public class StageSchedulerTests
         }
 
         Assert.True(
-            await executor.WaitForCompletionsAsync(1, TimeSpan.FromSeconds(2)),
+            await executor.WaitForCompletionsAsync(1, WaitCeiling),
             "expected the cancelled attempt's finally to run");
 
         using (var freshCts = new CancellationTokenSource())
@@ -80,7 +87,7 @@ public class StageSchedulerTests
         }
 
         Assert.True(
-            await executor.WaitForCompletionsAsync(1, TimeSpan.FromSeconds(2)),
+            await executor.WaitForCompletionsAsync(1, WaitCeiling),
             "expected the second attempt to run");
 
         // Without the fix this is 0: the first call's slot leaks, so the second
@@ -104,7 +111,7 @@ public class StageSchedulerTests
         var sensorValues = new Dictionary<SensorType, double>();
 
         await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, CancellationToken.None);
-        Assert.True(await audit.WaitForFailureAsync(TimeSpan.FromSeconds(2)), "expected the first failure to be logged");
+        Assert.True(await audit.WaitForFailureAsync(WaitCeiling), "expected the first failure to be logged");
 
         var failure = Assert.Single(audit.Failures);
         Assert.Equal(StageId.Stage1, failure.StageId);
@@ -118,7 +125,7 @@ public class StageSchedulerTests
         // The _running slot must be freed too - scheduling Stage1 again must
         // actually reach the executor a second time, not silently no-op.
         await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, CancellationToken.None);
-        Assert.True(await audit.WaitForFailureAsync(TimeSpan.FromSeconds(2)), "expected the second failure to be logged");
+        Assert.True(await audit.WaitForFailureAsync(WaitCeiling), "expected the second failure to be logged");
 
         Assert.Equal(2, audit.Failures.Count);
     }

@@ -9,10 +9,10 @@ public class RuleEngineTests
 {
     private static readonly IReadOnlyList<StageRule> Rules = DefaultRules.Create();
     private static readonly IRuleEvaluationPolicy Policy = new UnionRuleEvaluationPolicy();
-    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(2);
 
     [Fact]
-    public void ReadingFromOneSensor_EvaluatesWithOtherSensorDefaultingToZero()
+    public async Task ReadingFromOneSensor_EvaluatesWithOtherSensorDefaultingToZero()
     {
         // The Pressure sensor has never reported anything when Temperature ticks.
         // RuleEngine only knows about readings it has actually received, so this
@@ -31,7 +31,7 @@ public class RuleEngineTests
 
         tempSensor.Emit(25.0); // Pressure defaults to 0, which satisfies every "< N" condition
 
-        Assert.True(scheduler.WaitForCall(CallTimeout));
+        Assert.True(await scheduler.WaitForCallAsync(CallTimeout));
         var call = Assert.Single(scheduler.Calls);
         Assert.Equal(
             new HashSet<StageId> { StageId.Stage1, StageId.Stage2, StageId.Stage3 },
@@ -41,7 +41,7 @@ public class RuleEngineTests
     }
 
     [Fact]
-    public void SecondReading_RemembersThePriorValueOfTheSensorThatDidNotChange()
+    public async Task SecondReading_RemembersThePriorValueOfTheSensorThatDidNotChange()
     {
         var registry = new SensorRegistry();
         var tempSensor = new FakeSensor(SensorType.Temperature);
@@ -54,10 +54,10 @@ public class RuleEngineTests
         engine.Start();
 
         tempSensor.Emit(25.0);
-        Assert.True(scheduler.WaitForCall(CallTimeout));
+        Assert.True(await scheduler.WaitForCallAsync(CallTimeout));
 
         pressureSensor.Emit(40.0); // only Pressure changes this time
-        Assert.True(scheduler.WaitForCall(CallTimeout));
+        Assert.True(await scheduler.WaitForCallAsync(CallTimeout));
 
         var lastCall = scheduler.Calls[^1];
         Assert.Equal(25.0, lastCall.SensorValues[SensorType.Temperature]); // remembered from the earlier reading
@@ -65,7 +65,7 @@ public class RuleEngineTests
     }
 
     [Fact]
-    public void Constructor_CapturesASensorsExistingReading_AsABaselineBeforeAnyNewEvent()
+    public async Task Constructor_CapturesASensorsExistingReading_AsABaselineBeforeAnyNewEvent()
     {
         // If a sensor already had a reading before RuleEngine subscribed (e.g. it
         // started ticking before the engine finished construction), the constructor
@@ -85,7 +85,7 @@ public class RuleEngineTests
 
         pressureSensor.Emit(30.0); // the only *new* event after construction
 
-        Assert.True(scheduler.WaitForCall(CallTimeout));
+        Assert.True(await scheduler.WaitForCallAsync(CallTimeout));
         var call = Assert.Single(scheduler.Calls);
         // Both values are present even though only Pressure ticked after construction.
         Assert.Equal(25.0, call.SensorValues[SensorType.Temperature]);
@@ -93,7 +93,7 @@ public class RuleEngineTests
     }
 
     [Fact]
-    public void StoppedEngine_StillForwardsAReadingItReceives_WithAnAlreadyCancelledToken()
+    public async Task StoppedEngine_StillForwardsAReadingItReceives_WithAnAlreadyCancelledToken()
     {
         // Stop() cancels RuleEngine's internal token but does not unsubscribe from
         // sensors - only Dispose() does. So a reading delivered after Stop() still
@@ -114,12 +114,12 @@ public class RuleEngineTests
         tempSensor.Emit(25.0);
         pressureSensor.Emit(30.0);
 
-        Assert.True(scheduler.WaitForCall(CallTimeout));
+        Assert.True(await scheduler.WaitForCallAsync(CallTimeout));
         Assert.True(scheduler.Calls[^1].CancellationToken.IsCancellationRequested);
     }
 
     [Fact]
-    public void DisposedEngine_NoLongerReactsToSensorReadings()
+    public async Task DisposedEngine_NoLongerReactsToSensorReadings()
     {
         var registry = new SensorRegistry();
         var tempSensor = new FakeSensor(SensorType.Temperature);
@@ -135,7 +135,7 @@ public class RuleEngineTests
         tempSensor.Emit(25.0);
         pressureSensor.Emit(30.0);
 
-        Assert.False(scheduler.WaitForCall(TimeSpan.FromMilliseconds(200)));
+        Assert.False(await scheduler.WaitForCallAsync(TimeSpan.FromMilliseconds(300)));
         Assert.Empty(scheduler.Calls);
     }
 
@@ -164,6 +164,10 @@ public class RuleEngineTests
     /// Records every ScheduleStagesAsync call instead of actually running stages, and
     /// signals a semaphore per call so tests can wait for RuleEngine's fire-and-forget
     /// evaluation to reach the scheduler instead of assuming it completes synchronously.
+    /// WaitForCallAsync uses WaitAsync, not the blocking Wait - a synchronous wait would
+    /// tie up a real thread-pool thread inside an async test, and under a full parallel
+    /// test run (many test classes at once, only as many OS threads as the pool can
+    /// spare) that starves the pool and can make even multi-second timeouts miss.
     /// </summary>
     private sealed class RecordingStageScheduler : IStageScheduler
     {
@@ -193,6 +197,6 @@ public class RuleEngineTests
             return Task.CompletedTask;
         }
 
-        public bool WaitForCall(TimeSpan timeout) => _signal.Wait(timeout);
+        public Task<bool> WaitForCallAsync(TimeSpan timeout) => _signal.WaitAsync(timeout);
     }
 }

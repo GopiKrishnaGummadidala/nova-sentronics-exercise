@@ -1,4 +1,5 @@
-﻿using NovaExercise.Core.Logging;
+using System.Diagnostics;
+using NovaExercise.Core.Logging;
 using NovaExercise.Core.Resources;
 using NovaExercise.Core.Sensors;
 using NovaExercise.Core.Stages;
@@ -43,7 +44,9 @@ public class StageSchedulerTests
             .Select(_ => scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, cts.Token));
         await Task.WhenAll(callers);
 
-        await Task.Delay(300); // let any in-flight executions finish
+        Assert.True(
+            await executor.WaitForCompletionsAsync(1, TimeSpan.FromSeconds(2)),
+            "expected the one allowed execution to complete");
 
         Assert.Equal(1, executor.MaxConcurrent);
         Assert.True(executor.TotalStarts >= 1);
@@ -67,24 +70,120 @@ public class StageSchedulerTests
             await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, cancelledCts.Token);
         }
 
-        await Task.Delay(100); // let the cancelled attempt's finally block run
+        Assert.True(
+            await executor.WaitForCompletionsAsync(1, TimeSpan.FromSeconds(2)),
+            "expected the cancelled attempt's finally to run");
 
         using (var freshCts = new CancellationTokenSource())
         {
             await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, freshCts.Token);
         }
 
-        await Task.Delay(100); // let the second attempt actually run
+        Assert.True(
+            await executor.WaitForCompletionsAsync(1, TimeSpan.FromSeconds(2)),
+            "expected the second attempt to run");
 
         // Without the fix this is 0: the first call's slot leaks, so the second
         // call's TryAdd fails and its executor never runs either.
         Assert.Equal(2, executor.TotalStarts);
     }
 
+    [Fact]
+    public async Task ScheduleStagesAsync_ExecutorThrows_ReleasesResources_LogsTheFailure_AndFreesTheSlot()
+    {
+        // The cancellation-mid-execution tests already confirm resources get
+        // released for that specific failure mode. This covers the general case:
+        // IStageExecutor is meant to be swappable for a real hardware executor
+        // (see architecture.md), and a real one can fail with any exception, not
+        // just cancellation - StageScheduler's `catch (Exception ex)` branch had
+        // no test coverage at all before this.
+        var rm = new ResourceManager();
+        var executor = new FailingStageExecutor(rm);
+        var audit = new SpyAuditLogger();
+        IStageScheduler scheduler = new StageScheduler(executor, audit);
+        var sensorValues = new Dictionary<SensorType, double>();
+
+        await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, CancellationToken.None);
+        Assert.True(await audit.WaitForFailureAsync(TimeSpan.FromSeconds(2)), "expected the first failure to be logged");
+
+        var failure = Assert.Single(audit.Failures);
+        Assert.Equal(StageId.Stage1, failure.StageId);
+        Assert.IsType<InvalidOperationException>(failure.Exception);
+
+        // Stage1 requires R_A and R_B - the failing executor's lease must still
+        // have released both rather than leaving them stuck Busy.
+        Assert.Equal(ResourceState.Idle, rm.GetState(ResourceId.R_A));
+        Assert.Equal(ResourceState.Idle, rm.GetState(ResourceId.R_B));
+
+        // The _running slot must be freed too - scheduling Stage1 again must
+        // actually reach the executor a second time, not silently no-op.
+        await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, CancellationToken.None);
+        Assert.True(await audit.WaitForFailureAsync(TimeSpan.FromSeconds(2)), "expected the second failure to be logged");
+
+        Assert.Equal(2, audit.Failures.Count);
+    }
+
+    /// <summary>Acquires resources like a real executor, then always fails - simulating
+    /// a hardware fault rather than a cancellation, so cleanup on the non-cancellation
+    /// exception path can be verified.</summary>
+    private sealed class FailingStageExecutor : IStageExecutor
+    {
+        private readonly IResourceManager _resourceManager;
+
+        public FailingStageExecutor(IResourceManager resourceManager) => _resourceManager = resourceManager;
+
+        public async Task ExecuteAsync(StageDefinition stage, CancellationToken ct)
+        {
+            using var lease = _resourceManager.Acquire(stage.RequiredResources, TimeSpan.FromSeconds(5), ct);
+            await Task.Yield(); // ensure this is a genuine async failure, not a synchronous throw
+            throw new InvalidOperationException("Simulated hardware fault");
+        }
+    }
+
+    private sealed class SpyAuditLogger : IAuditLogger
+    {
+        public sealed record Failure(StageId StageId, Exception Exception);
+
+        private readonly List<Failure> _failures = new();
+        private readonly SemaphoreSlim _signal = new(0);
+
+        public IReadOnlyList<Failure> Failures
+        {
+            get { lock (_failures) return _failures.ToList(); }
+        }
+
+        public void LogStageScheduled(
+            StageId stageId,
+            IReadOnlyDictionary<SensorType, double> sensorValues,
+            IReadOnlyCollection<ResourceId> requiredResources,
+            DateTimeOffset timestamp)
+        {
+        }
+
+        public void LogStageFailed(StageId stageId, Exception exception, DateTimeOffset timestamp)
+        {
+            lock (_failures) { _failures.Add(new Failure(stageId, exception)); }
+            _signal.Release();
+        }
+
+        // WaitAsync, not the blocking Wait: a synchronous wait here would tie up a
+        // real thread-pool thread inside an async test, and under a full parallel
+        // test run that can starve the pool badly enough to blow past even a
+        // multi-second timeout (observed directly on a 4-core machine).
+        public Task<bool> WaitForFailureAsync(TimeSpan timeout) => _signal.WaitAsync(timeout);
+    }
+
+    /// <summary>Signals completion via a semaphore rather than relying on a fixed
+    /// Task.Delay in the tests that use this - a fixed delay flakes under the thread
+    /// pool contention of a full parallel test run (observed directly: a sibling test
+    /// using Task.Delay(200) here failed intermittently before this was added).
+    /// WaitForCompletionsAsync uses WaitAsync for the same reason described on
+    /// SpyAuditLogger.WaitForFailureAsync above.</summary>
     private sealed class TrackingStageExecutor : IStageExecutor
     {
         private int _current;
         private readonly object _maxLock = new();
+        private readonly SemaphoreSlim _completedSignal = new(0);
 
         public int MaxConcurrent { get; private set; }
         public int TotalStarts;
@@ -99,9 +198,29 @@ public class StageSchedulerTests
                     MaxConcurrent = now;
             }
 
-            await Task.Delay(50, ct);
+            try
+            {
+                await Task.Delay(50, ct);
+            }
+            finally
+            {
+                // In a finally so a cancelled delay still signals completion -
+                // otherwise a cancelled run would never release the semaphore.
+                Interlocked.Decrement(ref _current);
+                _completedSignal.Release();
+            }
+        }
 
-            Interlocked.Decrement(ref _current);
+        public async Task<bool> WaitForCompletionsAsync(int count, TimeSpan timeout)
+        {
+            var sw = Stopwatch.StartNew();
+            for (var i = 0; i < count; i++)
+            {
+                var remaining = timeout - sw.Elapsed;
+                if (remaining < TimeSpan.Zero || !await _completedSignal.WaitAsync(remaining))
+                    return false;
+            }
+            return true;
         }
     }
 }

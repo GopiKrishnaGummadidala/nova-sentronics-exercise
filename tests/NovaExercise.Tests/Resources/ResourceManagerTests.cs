@@ -119,4 +119,31 @@ public class ResourceManagerTests
         Assert.Equal(ResourceState.Idle, rm.GetState(ResourceId.R_A));
         Assert.Equal(ResourceState.Busy, rm.GetState(ResourceId.R_B)); // still held by holdB
     }
+
+    [Fact]
+    public void Acquire_TimesOutWaitingForASecondResource_RollsBackTheFirstOneAlreadyAcquired()
+    {
+        // The cancellation test above exercises the same rollback code path, but
+        // via cancellation. This exercises it via the *default* failure mode
+        // documented in assumptions.md - a resource stays Busy long enough that
+        // the shared timeout simply elapses, no cancellation involved - which
+        // Acquire_ReleasesAllOnFailure doesn't actually cover: there, R_A (sorted
+        // first) is already held, so it fails on the very first resource and
+        // nothing is ever partially acquired. This test needs R_A to succeed
+        // *before* the failure, so there's something real to roll back.
+        var rm = new ResourceManager();
+
+        // R_B is held for the whole test so the second Acquire has to wait on it
+        // until its own timeout elapses.
+        using var holdB = rm.Acquire(new[] { ResourceId.R_B }, TimeSpan.FromSeconds(5));
+
+        // Sorted acquisition order is R_A, R_B: R_A succeeds immediately (free),
+        // then the wait for R_B (held by holdB) runs out its own short timeout.
+        Assert.Throws<TimeoutException>(() =>
+            rm.Acquire(new[] { ResourceId.R_A, ResourceId.R_B }, TimeSpan.FromMilliseconds(100)));
+
+        // R_A was acquired before the timeout hit - it must be rolled back, not left Busy.
+        Assert.Equal(ResourceState.Idle, rm.GetState(ResourceId.R_A));
+        Assert.Equal(ResourceState.Busy, rm.GetState(ResourceId.R_B)); // still held by holdB
+    }
 }

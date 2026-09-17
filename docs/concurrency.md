@@ -9,6 +9,13 @@ The main concurrency concerns are:
 - **Resource state** (Idle/Busy/Error) in `Resource` and `ResourceManager`.
 - **Stage scheduling** in `StageScheduler` (tracking running stages).
 - **Sensor readings** in `RuleEngine` (current sensor values dictionary).
+- **Sensor subscriptions** in `RuleEngine` (which `SensorType`s it's currently
+  wired to, guarded by `_subscriptionLock` so a sensor registered concurrently
+  with construction can't be subscribed twice — see
+  [Design Rationale](design-rationale.md)).
+- **Sensor registration** in `SensorRegistry` (swapping in a replacement for
+  an existing `SensorType`), guarded by its own lock so the sensor it's
+  replacing can be captured atomically together with storing the new one.
 
 All shared mutable state is protected using locks or concurrent collections.
 

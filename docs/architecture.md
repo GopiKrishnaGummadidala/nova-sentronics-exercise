@@ -139,10 +139,10 @@ flowchart TB
         AL[AuditLogger]
     end
 
-    S1 -->|ReadingChanged| SR
-    S2 -->|ReadingChanged| SR
+    S1 -->|ReadingChanged| RE
+    S2 -->|ReadingChanged| RE
+    SR -->|"SensorRegistered / SensorUnregistered"| RE
 
-    SR -->|Current values| RE
     RR -->|Rules| RE
     RP -->|Policy| RE
 

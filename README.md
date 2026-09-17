@@ -46,9 +46,11 @@ dotnet test
 ```
 
 This runs unit tests for rules (including boundary values at each threshold),
-resources, stage scheduling, and the rule engine, plus integration tests
-covering the DI composition root, an end‑to‑end sensor‑to‑stage workflow, and
-concurrent resource contention across the full stage map.
+resources, sensor registration/replacement, stage scheduling, and the rule
+engine (including its reaction to sensors registered, removed, or replaced at
+runtime), plus integration tests covering the DI composition root, an
+end‑to‑end sensor‑to‑stage workflow, and concurrent resource contention
+across the full stage map.
 
 ## Concurrency Demo
 

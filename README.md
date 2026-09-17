@@ -56,6 +56,7 @@ dotnet run --project tests/NovaExercise.ConcurrencyDemos/NovaExercise.Concurrenc
 
 ## Documentation
 
+- [Business Case](docs/business-case.md) — the original exercise brief this repository was built against
 - [Architecture](docs/architecture.md)
 - [Concurrency Design](docs/concurrency.md)
 - [Assumptions](docs/assumptions.md)

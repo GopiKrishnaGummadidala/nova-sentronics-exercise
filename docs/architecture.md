@@ -15,13 +15,16 @@ The system simulates a manufacturing controller that:
 
 - `ISensor`: Represents a sensor with a type, current reading, and `ReadingChanged` event.
 - `SimulatedSensor`: Generates periodic readings every 100 ms.
-- `ISensorRegistry`: Manages registration/unregistration of sensors.
+- `ISensorRegistry`: Manages registration/unregistration of sensors, and raises
+  `SensorRegistered` / `SensorUnregistered` when the set changes.
 - `SensorRegistry`: In‑memory implementation of `ISensorRegistry`.
 
 Responsibilities:
 
 - Provide current and streaming sensor data.
-- Allow dynamic addition/removal of sensors.
+- Allow dynamic addition, removal, and replacement of sensors — including
+  while a `RuleEngine` is already running, not just at startup (see
+  "Rules & Engine" below and [Design Rationale](design-rationale.md)).
 
 ### Resources
 
@@ -66,10 +69,17 @@ Responsibilities:
   that led to the request (`StageScheduler` decides whether that request
   turns into an actual start, and logs accordingly — `RuleEngine` itself has
   no audit-logging or resource/stage-definition knowledge).
+- React to the sensor set changing at runtime: subscribe to a newly
+  registered sensor, unsubscribe from a removed one, and move the
+  subscription across when one is replaced — not just read the registry once
+  at construction.
 
 ## Communication Patterns
 
-- **Event‑driven**: Sensors raise `ReadingChanged`; `RuleEngine` subscribes and reacts.
+- **Event‑driven**: Sensors raise `ReadingChanged`; `RuleEngine` subscribes and
+  reacts. `ISensorRegistry` itself raises `SensorRegistered` /
+  `SensorUnregistered` so `RuleEngine` can keep its own subscriptions in sync
+  with the registry for as long as it runs.
 - **Dependency injection**: Components depend on interfaces (`ISensorRegistry`, `IResourceManager`, etc.), enabling testability and substitution.
 - **Synchronous acquisition, asynchronous execution**:
   - Resource acquisition is synchronous (`IResourceManager.Acquire`).
@@ -102,7 +112,8 @@ Responsibilities:
 
 ## Extensibility Points
 
-- **New sensors**: Implement `ISensor` and register via `ISensorRegistry`.
+- **New sensors**: Implement `ISensor` and register via `ISensorRegistry` —
+  a running `RuleEngine` picks it up immediately, no restart needed.
 - **New rules**: Add `StageRule` instances in `DefaultRules.Create()`.
 - **Alternative policies**: Implement `IRuleEvaluationPolicy` (e.g., priority‑based).
 - **Real hardware**: Replace `SimulatedSensor` and `SimulatedStageExecutor` with real implementations.

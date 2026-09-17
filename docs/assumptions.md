@@ -56,9 +56,19 @@ This document lists key assumptions made in the design and implementation.
 
 ## Sensors & Extensibility
 
-- The system supports **dynamic registration** of sensors via `ISensorRegistry`.
+- The system supports **dynamic registration, removal, and replacement** of
+  sensors via `ISensorRegistry`, including while a `RuleEngine` is already
+  running — `ISensorRegistry.Register`/`Unregister` raise
+  `SensorRegistered`/`SensorUnregistered`, and `RuleEngine` reacts to them
+  rather than only reading the registry once at construction.
 - The demo uses two simulated sensors (Temperature, Pressure), but additional sensors can be added without changing core logic.
 - Sensor updates are treated as fire‑and‑forget events; the latest value is always used for rule evaluation.
+- Concurrent `Register`/`Unregister` calls **for the same `SensorType`** from
+  multiple threads at once aren't specifically hardened against beyond basic
+  correctness (no corruption, no duplicate subscriptions) — registration
+  changes are assumed to be infrequent, effectively serialized,
+  operator-initiated events, not high-frequency traffic like sensor readings
+  are.
 
 ## Persistence
 

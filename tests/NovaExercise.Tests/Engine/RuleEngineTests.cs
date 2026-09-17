@@ -146,6 +146,83 @@ public class RuleEngineTests
     }
 
     [Fact]
+    public async Task SensorRegisteredAfterConstruction_IsSubscribedTo_AndItsReadingsAreProcessed()
+    {
+        // The exercise explicitly requires "new sensors may be introduced" as the
+        // process evolves. Registering a sensor is meaningless if a RuleEngine
+        // that's already running never learns about it - this is the core
+        // capability that was missing before RuleEngine reacted to
+        // SensorRegistered/SensorUnregistered instead of only reading the
+        // registry once, in its constructor.
+        var registry = new SensorRegistry();
+        var tempSensor = new FakeSensor(SensorType.Temperature);
+        registry.Register(tempSensor);
+
+        var scheduler = new RecordingStageScheduler();
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        engine.Start();
+
+        // Registered only now - after the engine is already constructed and running.
+        var pressureSensor = new FakeSensor(SensorType.Pressure);
+        registry.Register(pressureSensor);
+        pressureSensor.Emit(30.0);
+
+        Assert.True(await scheduler.WaitForCallAsync(CallTimeout));
+        var call = Assert.Single(scheduler.Calls);
+        Assert.Equal(30.0, call.SensorValues[SensorType.Pressure]);
+    }
+
+    [Fact]
+    public async Task SensorUnregisteredAfterConstruction_StopsAffectingEvaluation()
+    {
+        var registry = new SensorRegistry();
+        var tempSensor = new FakeSensor(SensorType.Temperature);
+        var pressureSensor = new FakeSensor(SensorType.Pressure);
+        registry.Register(tempSensor);
+        registry.Register(pressureSensor);
+
+        var scheduler = new RecordingStageScheduler();
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        engine.Start();
+
+        registry.Unregister(pressureSensor);
+        pressureSensor.Emit(999.0); // should no longer reach the engine at all
+
+        Assert.False(await scheduler.WaitForCallAsync(TimeSpan.FromMilliseconds(300)));
+        Assert.Empty(scheduler.Calls);
+    }
+
+    [Fact]
+    public async Task SensorReplaced_OldInstanceNoLongerAffectsEvaluation_ReplacementDoes()
+    {
+        // "Existing sensors may be replaced" - registering a second sensor for a
+        // SensorType that's already occupied (e.g. swapping in a real hardware
+        // sensor for the simulated one) must move the subscription across, not
+        // leave the engine listening to the old instance, the new one, or both.
+        var registry = new SensorRegistry();
+        var originalTemp = new FakeSensor(SensorType.Temperature);
+        var pressureSensor = new FakeSensor(SensorType.Pressure);
+        registry.Register(originalTemp);
+        registry.Register(pressureSensor);
+
+        var scheduler = new RecordingStageScheduler();
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        engine.Start();
+
+        var replacementTemp = new FakeSensor(SensorType.Temperature);
+        registry.Register(replacementTemp);
+
+        // The old instance is no longer wired up at all - this must be ignored.
+        originalTemp.Emit(999.0);
+        Assert.False(await scheduler.WaitForCallAsync(TimeSpan.FromMilliseconds(200)));
+
+        // The replacement's readings are what the engine reacts to now.
+        replacementTemp.Emit(25.0);
+        Assert.True(await scheduler.WaitForCallAsync(CallTimeout));
+        Assert.Equal(25.0, scheduler.Calls[^1].SensorValues[SensorType.Temperature]);
+    }
+
+    [Fact]
     public async Task EvaluateAndScheduleAsync_RuleThrows_LogsTheFailure_AndDoesNotScheduleAnything()
     {
         // EvaluateAndScheduleAsync's returned Task is discarded by the

@@ -112,6 +112,43 @@ would need string keys or a type registry instead. That's more flexibility
 than this exercise's stated requirement calls for, and it would cost the
 compile-time safety above; not worth it here.
 
+### RuleEngine reacts to registry changes, not just a one-time constructor scan
+
+**Decision:** `ISensorRegistry` raises `SensorRegistered`/`SensorUnregistered`;
+`RuleEngine` subscribes to both and keeps its own sensor subscriptions in
+sync for as long as it runs, instead of reading `_sensors.Sensors` once in
+its constructor and never again.
+
+**Why:** this was flagged in review, and the first instinct was to document
+it as a boundary rather than fix it — `SensorRegistry.Register`/`Unregister`
+already worked at any time, so "sensor registration/management," one of the
+exercise's named required capabilities, was already demonstrably satisfied;
+the gap was only that a running `RuleEngine` never noticed. Documenting a
+boundary was the right call earlier in this project for a much bigger gap
+(cross-process consumers, above) precisely because closing it meant adopting
+an entire message-broker dependency the rest of the design deliberately
+avoids. This is a different shape of decision: the fix is a small, in-process
+extension of a pattern the code already uses everywhere else — subscribe to
+an event, react to it — not a new architectural layer. Weighed against the
+exercise's explicit, named requirement ("new sensors may be introduced...
+existing sensors may be replaced"), a small fix that directly satisfies a
+literal reading beat a documented excuse for not having it.
+
+**Trade-off:** subscribing to `SensorRegistered` before the constructor
+snapshots the current sensor list means a sensor registered in that exact
+gap would both fire the event and appear in the snapshot — without a guard,
+double-subscribing it and processing every one of its readings twice.
+`RuleEngine` now tracks which `SensorType`s it's subscribed to and only acts
+once per type, which closes that window, but it's a second piece of state
+(a lock-guarded `HashSet<SensorType>`) purely to make an ordering question
+not matter — one more thing a future reader has to understand alongside the
+subscription logic itself. Also out of scope: two threads calling
+`Register`/`Unregister` for the *same* `SensorType` at the same instant
+aren't specifically hardened beyond basic correctness — see
+[assumptions.md](assumptions.md). Replacing a live sensor is treated as an
+infrequent, operator-initiated action, not something happening at
+sensor-reading frequency.
+
 ## Rules
 
 ### Rules and their combination policy are separate types

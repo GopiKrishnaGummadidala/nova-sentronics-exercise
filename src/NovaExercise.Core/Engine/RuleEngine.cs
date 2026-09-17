@@ -17,6 +17,14 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
 
     private readonly ConcurrentDictionary<SensorType, double> _currentValues = new();
 
+    // Tracks which SensorTypes are currently subscribed, so SubscribeToSensor is
+    // idempotent: the constructor subscribes to registry-change events *before*
+    // snapshotting the current sensor list, so a sensor registered in that gap
+    // would otherwise fire the event and also appear in the snapshot, subscribing
+    // OnReadingChanged to it twice - double-processing every one of its readings.
+    private readonly object _subscriptionLock = new();
+    private readonly HashSet<SensorType> _subscribedTypes = new();
+
     public RuleEngine(
         ISensorRegistry sensors,
         IReadOnlyList<StageRule> rules,
@@ -30,12 +38,40 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
         _scheduler = scheduler;
         _audit = audit;
 
+        _sensors.SensorRegistered += OnSensorRegistered;
+        _sensors.SensorUnregistered += OnSensorUnregistered;
+
         foreach (var sensor in _sensors.Sensors)
         {
-            sensor.ReadingChanged += OnReadingChanged;
-            if (sensor.CurrentReading is not null)
-                _currentValues[sensor.Type] = sensor.CurrentReading.Value;
+            SubscribeToSensor(sensor);
         }
+    }
+
+    private void OnSensorRegistered(ISensor sensor) => SubscribeToSensor(sensor);
+
+    private void OnSensorUnregistered(ISensor sensor)
+    {
+        lock (_subscriptionLock)
+        {
+            if (!_subscribedTypes.Remove(sensor.Type))
+                return; // never subscribed, or already unsubscribed
+        }
+
+        sensor.ReadingChanged -= OnReadingChanged;
+        _currentValues.TryRemove(sensor.Type, out _);
+    }
+
+    private void SubscribeToSensor(ISensor sensor)
+    {
+        lock (_subscriptionLock)
+        {
+            if (!_subscribedTypes.Add(sensor.Type))
+                return; // already subscribed - see the field comment above
+        }
+
+        sensor.ReadingChanged += OnReadingChanged;
+        if (sensor.CurrentReading is not null)
+            _currentValues[sensor.Type] = sensor.CurrentReading.Value;
     }
 
     private void OnReadingChanged(SensorReading reading)
@@ -81,6 +117,8 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
     {
         Stop();
         _cts.Dispose();
+        _sensors.SensorRegistered -= OnSensorRegistered;
+        _sensors.SensorUnregistered -= OnSensorUnregistered;
         foreach (var sensor in _sensors.Sensors)
             sensor.ReadingChanged -= OnReadingChanged;
     }

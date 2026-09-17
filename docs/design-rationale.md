@@ -28,6 +28,54 @@ break that sensor's ticking. `RuleEngine` sidesteps this by doing the
 minimum possible work in the handler (record the value, fire-and-forget the
 rest) rather than doing real work inline — see the next section.
 
+### Sensor publication is in-process, not cross-process
+
+**Decision:** `ISensor.ReadingChanged` is an in-process .NET event (a
+multicast delegate). There is no message broker, queue, or IPC mechanism
+between a sensor and its consumers — everything runs inside one process.
+
+**Why:** the exercise's exact wording is "support for multiple independent
+consumers **(i.e., processes)** of the same sensor data." The section above
+already covers why a multicast event satisfies "multiple independent
+consumers" structurally — any number of handlers can subscribe without the
+sensor knowing they exist. The parenthetical "(i.e., processes)" is a
+separate, more literal question: does this design let independent *OS
+processes* consume the same stream? As implemented, no — read narrowly,
+that would need cross-process transport. Read in the context of the rest of
+the brief, though — a single console app, resources explicitly "faked"
+with an in-memory class, no persistence, no mention anywhere of a
+deployment topology with multiple services — "processes" is far more
+likely informal shorthand for "independent consumer logic" than a literal
+OS-process requirement. Given that, and given the exercise's own
+instruction to avoid external resources "unless absolutely necessary,"
+introducing a real broker (RabbitMQ/Kafka) to hedge against the narrower
+reading would mean adding infrastructure the rest of this design
+deliberately avoids, to solve a problem the brief never actually describes.
+
+**Trade-off:** if a reviewer does mean literal process isolation — e.g., a
+real deployment where a UI, a logger, and a controller run as separate
+services — this implementation doesn't reach that on its own, and that
+boundary is named here explicitly rather than glossed over. `ISensor`'s
+only real obligation is "raise `ReadingChanged`, notify whoever's
+listening"; replacing that one publication step with a message broker (a
+small adapter that republishes each reading, e.g. to a queue or pub/sub
+topic) would let independent processes each run their own consumer without
+changing `RuleEngine`, `StageScheduler`, or anything downstream:
+
+```
+Sensor Gateway
+      ↓
+Sensor Message Bus
+      ├── Process A
+      ├── Process B
+      └── Process C
+```
+
+The gateway publishes each reading once; `RuleEngine` and any other
+consumer would each subscribe to the bus independently — the same
+subscribe-and-react shape they already use for the in-process event today.
+Only what sits behind `ISensor` would change.
+
 ### Fire-and-forget evaluation, not synchronous-in-handler
 
 **Decision:** `RuleEngine.OnReadingChanged` records the value and calls

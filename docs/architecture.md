@@ -106,6 +106,7 @@ Responsibilities:
 - **New rules**: Add `StageRule` instances in `DefaultRules.Create()`.
 - **Alternative policies**: Implement `IRuleEvaluationPolicy` (e.g., priority‑based).
 - **Real hardware**: Replace `SimulatedSensor` and `SimulatedStageExecutor` with real implementations.
+- **Cross-process consumers**: `ISensor.ReadingChanged` publication is the one seam that would change — see [Design Rationale](design-rationale.md) for why this is in-process today and how it would externalize behind a message broker.
 
 # Architecture Diagram (mermaid)
 

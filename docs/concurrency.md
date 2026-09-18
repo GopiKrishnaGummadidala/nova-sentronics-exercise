@@ -243,9 +243,11 @@ Use(resources); // may see partially initialized resources
 - `StageSchedulerTests.ScheduleStagesAsync_ConcurrentCallsForSameStage_NeverRunsMoreThanOneAtOnce` fires 50 concurrent `ScheduleStagesAsync` calls for the same stage and asserts the executor never observes more than one concurrent execution — a regression test for the atomicity violation above.
 - `StageSchedulerTests.ScheduleStagesAsync_AfterABurstOfFastCompletions_TheStageIsStillSchedulable` fires 20,000 unpaced `ScheduleStagesAsync` calls against a synchronously-completing executor and asserts the stage can still complete afterward — a regression test for the reservation-lifecycle race above, which none of the other tests could reach since every other executor here genuinely yields.
 - `EndToEndWorkflowTests` exercise the full pipeline with concurrent sensor updates and stage executions.
-- `NovaExercise.ConcurrencyDemos` provides a manual, genuinely‑reproducing
-  demonstration of deadlock with `ResourceManagerNaive`, and of the
-  check‑then‑act atomicity violation above with `NaiveStageTracker`.
+- `NovaExercise.ConcurrencyDemos` provides three manual, genuinely‑reproducing
+  demonstrations: deadlock with `ResourceManagerNaive`, the check‑then‑act
+  atomicity violation above with `NaiveStageTracker`, and — for contrast —
+  the real `ResourceManager` correctly resolving the same kind of resource
+  contention across repeated rounds, with no overlap and no deadlock.
 
 ## Summary
 

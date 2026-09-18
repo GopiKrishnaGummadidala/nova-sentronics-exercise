@@ -22,7 +22,7 @@ This repository contains a reference implementation for the Nova Sentronics Seni
 - `src/NovaExercise.Core` – Domain models, interfaces, and core logic.
 - `src/NovaExercise.App` – Console application wiring everything together.
 - `tests/NovaExercise.Tests` – Unit and integration tests.
-- `tests/NovaExercise.ConcurrencyDemos` – Demo project showing a deadlock‑prone resource manager and a check‑then‑act atomicity violation.
+- `tests/NovaExercise.ConcurrencyDemos` – Three narrated demos: a deadlock, a check‑then‑act atomicity violation, and the real `ResourceManager` handling the same contention correctly (see its own [README](tests/NovaExercise.ConcurrencyDemos/README.md)).
 
 ## Build & Run
 
@@ -54,23 +54,20 @@ across the full stage map.
 
 ## Concurrency Demos
 
-The `NovaExercise.ConcurrencyDemos` project runs two demonstrations back to back:
-
-1. How a naive resource manager (`ResourceManagerNaive`) can deadlock.
-2. How a naive check-then-act stage tracker (`NaiveStageTracker`) lets two
-   concurrent callers both believe they started the same stage — the real
-   atomicity violation `StageScheduler` once had (see
-   [docs/concurrency.md](docs/concurrency.md)).
+The `NovaExercise.ConcurrencyDemos` project runs three narrated demonstrations
+back to back: a genuine deadlock, a genuine atomicity violation, and the real
+`ResourceManager` correctly resolving the same kind of contention that breaks
+the first one. See [its own README](tests/NovaExercise.ConcurrencyDemos/README.md)
+for what each one shows.
 
 ```bash
 dotnet run --project tests/NovaExercise.ConcurrencyDemos/NovaExercise.ConcurrencyDemos.csproj
 ```
 
 > **Warning:** Demo 1 genuinely deadlocks by design — both threads block for
-> the full ~5s acquisition timeout before failing. Both demos are for
-> illustration only; the artificial delays inside `ResourceManagerNaive` and
-> `NaiveStageTracker` exist purely to make each race reproduce
-> deterministically on every run, not because either bug needs them to occur.
+> the full ~5s acquisition timeout before failing. All three demos use
+> artificial delays purely to make their outcomes reproduce deterministically
+> on every run, not because any of the underlying behavior needs them to occur.
 
 ## Documentation
 

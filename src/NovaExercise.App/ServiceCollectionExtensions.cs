@@ -24,7 +24,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IStageExecutor, SimulatedStageExecutor>();
         services.AddSingleton<IStageScheduler, StageScheduler>();
         services.AddSingleton<IRuleEvaluationPolicy, UnionRuleEvaluationPolicy>();
-        services.AddSingleton<IAuditLogger, AuditLogger>();
+        services.AddSingleton<ISystemLogger, SystemLogger>();
         services.AddSingleton<IReadOnlyList<StageRule>>(_ => DefaultRules.Create());
         services.AddSingleton<IRuleEngine, RuleEngine>();
 

@@ -88,8 +88,8 @@ silently degrading the "every 100ms" contract the exercise specifies.
 
 **Trade-off:** fire-and-forget means the caller can't observe failures
 directly. That's why failure reporting was moved into `StageScheduler`
-(logged via `IAuditLogger.LogStageFailed`) instead of being left to whoever
-happens to be awaiting — see "Audit logging" below. It's also why two
+(logged via `ISystemLogger.LogStageFailed`) instead of being left to whoever
+happens to be awaiting — see "System Logging" below. It's also why two
 sensors ticking close together can both trigger an evaluation pass; that's
 handled at the scheduling layer, not by trying to debounce sensor events.
 
@@ -244,11 +244,11 @@ with an atomic `_running.TryAdd(id, ...)` and only then logs it as scheduled
 and runs it. `RuleEngine` just asks for stages to run; it has no idea
 whether the request turned into a real execution.
 
-**Why:** "at most one instance of a stage runs at a time" and "the audit
-log reflects what actually ran" are the same invariant looked at from two
+**Why:** "at most one instance of a stage runs at a time" and "the log
+reflects what actually ran" are the same invariant looked at from two
 angles, and there's exactly one place that can honestly answer "is this
 stage running right now" — whichever component holds the running-stages
-table. Putting the audit log anywhere else (e.g., logging every time a rule
+table. Putting that logging anywhere else (e.g., logging every time a rule
 *matches*, which is what the first version did) means it can fire more than
 once for a single real execution whenever two sensors tick close together,
 since rule evaluation runs once per sensor event, independent of whether
@@ -302,21 +302,21 @@ configuration through DI (e.g. keyed services) would have been more
 ceremony for no real benefit - not everything needs to go through the
 container just because a container exists.
 
-### In-memory only; audit trail is the durability story
+### In-memory only; the log is the durability story
 
-**Decision:** no database, no file persistence. `IAuditLogger` writes to the
+**Decision:** no database, no file persistence. `ISystemLogger` writes to the
 console.
 
 **Why:** nothing in the business scenario calls for state to survive a
 restart — sensor readings are transient by nature, and "what ran and when"
-is the one thing worth keeping, which is exactly what the audit log
-captures. Making it an interface rather than a concrete `Console.WriteLine`
-call means swapping in file- or database-backed persistence later is a new
-`IAuditLogger` implementation, not a change to `StageScheduler` or
+is the one thing worth keeping, which is exactly what the log captures.
+Making it an interface rather than a concrete `Console.WriteLine` call means
+swapping in file- or database-backed persistence later is a new
+`ISystemLogger` implementation, not a change to `StageScheduler` or
 `RuleEngine`.
 
-**Trade-off:** if the audit trail needs to survive a process crash or be
-queried later, a `Console`-only implementation obviously doesn't cut it.
+**Trade-off:** if the log needs to survive a process crash or be queried
+later, a `Console`-only implementation obviously doesn't cut it.
 That's a deliberate "document the assumption, defer the implementation"
 call for this exercise's scope (see [assumptions.md](assumptions.md)), not
 an oversight.

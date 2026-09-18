@@ -116,7 +116,7 @@ start a `Task.Run` for the same stage — violating the "at most one instance
 of a given stage runs at a time" invariant (see
 [assumptions.md](assumptions.md)). This was verified with a standalone
 200,000‑iteration repro of the same check‑then‑act shape (5 double‑passes
-observed), and empirically in this app: with the race in place, the audit log
+observed), and empirically in this app: with the race in place, the log
 would show the same stage "scheduled" twice at the same timestamp whenever
 both sensors ticked close together. The same shape is reproduced as a
 runnable, deterministic demo in `NovaExercise.ConcurrencyDemos`

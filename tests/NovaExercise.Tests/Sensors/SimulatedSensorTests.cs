@@ -17,7 +17,7 @@ public class SimulatedSensorTests
         // using its last stale CurrentReading forever with no record anywhere
         // that anything had gone wrong.
         var callCount = 0;
-        var audit = new SpyAuditLogger();
+        var logger = new SpySystemLogger();
 
         using var sensor = new SimulatedSensor(SensorType.Temperature, () =>
         {
@@ -25,21 +25,21 @@ public class SimulatedSensorTests
             if (n == 1)
                 throw new InvalidOperationException("Simulated sensor fault");
             return 42.0;
-        }, audit);
+        }, logger);
 
         var readingReceived = new SemaphoreSlim(0);
         sensor.ReadingChanged += _ => readingReceived.Release();
 
-        Assert.True(await audit.WaitForFailureAsync(TimeSpan.FromSeconds(5)));
-        Assert.IsType<InvalidOperationException>(audit.LastFailureException);
-        Assert.Equal(SensorType.Temperature, audit.LastFailureSensorType);
+        Assert.True(await logger.WaitForFailureAsync(TimeSpan.FromSeconds(5)));
+        Assert.IsType<InvalidOperationException>(logger.LastFailureException);
+        Assert.Equal(SensorType.Temperature, logger.LastFailureSensorType);
 
         // The loop must still be alive and ticking after the failed attempt.
         Assert.True(await readingReceived.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(42.0, sensor.CurrentReading!.Value);
     }
 
-    private sealed class SpyAuditLogger : IAuditLogger
+    private sealed class SpySystemLogger : ISystemLogger
     {
         private readonly SemaphoreSlim _signal = new(0);
 

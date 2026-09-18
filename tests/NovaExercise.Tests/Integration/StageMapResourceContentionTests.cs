@@ -23,7 +23,7 @@ public class StageMapResourceContentionTests
         var rm = new ResourceManager();
         var tracker = new ResourceUsageTracker();
         IStageExecutor executor = new TrackingStageExecutor(rm, tracker);
-        IStageScheduler scheduler = new StageScheduler(executor, new AuditLogger());
+        IStageScheduler scheduler = new StageScheduler(executor, new SystemLogger());
         var sensorValues = new Dictionary<SensorType, double>();
         var stages = new[] { StageId.Stage1, StageId.Stage2, StageId.Stage3 };
 

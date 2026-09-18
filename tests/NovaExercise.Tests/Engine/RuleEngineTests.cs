@@ -33,7 +33,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new SystemLogger());
         engine.Start();
 
         tempSensor.Emit(25.0); // Pressure defaults to 0, which satisfies every "< N" condition
@@ -57,7 +57,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new SystemLogger());
         engine.Start();
 
         tempSensor.Emit(25.0);
@@ -87,7 +87,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new SystemLogger());
         engine.Start();
 
         pressureSensor.Emit(30.0); // the only *new* event after construction
@@ -114,7 +114,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new SystemLogger());
         engine.Start();
         engine.Stop();
 
@@ -135,7 +135,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        var engine = new RuleEngine(registry, Rules, Policy, scheduler, new SystemLogger());
         engine.Start();
         engine.Dispose();
 
@@ -160,7 +160,7 @@ public class RuleEngineTests
         registry.Register(tempSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new SystemLogger());
         engine.Start();
 
         // Registered only now - after the engine is already constructed and running.
@@ -183,7 +183,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new SystemLogger());
         engine.Start();
 
         registry.Unregister(pressureSensor);
@@ -207,7 +207,7 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new RecordingStageScheduler();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new AuditLogger());
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, new SystemLogger());
         engine.Start();
 
         var replacementTemp = new FakeSensor(SensorType.Temperature);
@@ -243,15 +243,15 @@ public class RuleEngineTests
             new[] { StageId.Stage1 });
 
         var scheduler = new RecordingStageScheduler();
-        var audit = new SpyAuditLogger();
-        using var engine = new RuleEngine(registry, new[] { throwingRule }, Policy, scheduler, audit);
+        var logger = new SpySystemLogger();
+        using var engine = new RuleEngine(registry, new[] { throwingRule }, Policy, scheduler, logger);
         engine.Start();
 
         tempSensor.Emit(25.0);
 
-        Assert.True(await audit.WaitForFailureAsync(CallTimeout));
-        Assert.Equal(25.0, audit.LastFailureSensorValues![SensorType.Temperature]);
-        Assert.IsType<InvalidOperationException>(audit.LastFailureException);
+        Assert.True(await logger.WaitForFailureAsync(CallTimeout));
+        Assert.Equal(25.0, logger.LastFailureSensorValues![SensorType.Temperature]);
+        Assert.IsType<InvalidOperationException>(logger.LastFailureException);
 
         // The exception happened before the scheduler was ever reached.
         Assert.False(await scheduler.WaitForCallAsync(TimeSpan.FromMilliseconds(300)));
@@ -274,14 +274,14 @@ public class RuleEngineTests
         registry.Register(pressureSensor);
 
         var scheduler = new ThrowingStageScheduler();
-        var audit = new SpyAuditLogger();
-        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, audit);
+        var logger = new SpySystemLogger();
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, logger);
         engine.Start();
 
         tempSensor.Emit(25.0);
 
-        Assert.True(await audit.WaitForFailureAsync(CallTimeout));
-        Assert.IsType<InvalidOperationException>(audit.LastFailureException);
+        Assert.True(await logger.WaitForFailureAsync(CallTimeout));
+        Assert.IsType<InvalidOperationException>(logger.LastFailureException);
     }
 
     /// <summary>
@@ -345,7 +345,7 @@ public class RuleEngineTests
         public Task<bool> WaitForCallAsync(TimeSpan timeout) => _signal.WaitAsync(timeout);
     }
 
-    private sealed class SpyAuditLogger : IAuditLogger
+    private sealed class SpySystemLogger : ISystemLogger
     {
         private readonly SemaphoreSlim _signal = new(0);
 

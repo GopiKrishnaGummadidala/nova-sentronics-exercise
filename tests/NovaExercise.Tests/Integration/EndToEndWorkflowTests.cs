@@ -14,19 +14,19 @@ public class EndToEndWorkflowTests
     {
         // Arrange: sensors with controlled values
         var registry = new SensorRegistry();
-        IAuditLogger audit = new AuditLogger();
+        ISystemLogger logger = new SystemLogger();
 
         // Use fixed values instead of random for determinism
         var tempSensor = new SimulatedSensor(
             SensorType.Temperature,
             () => 15.0, // will trigger rule 1: Stage1 + Stage2
-            audit
+            logger
         );
 
         var pressureSensor = new SimulatedSensor(
             SensorType.Pressure,
             () => 80.0,
-            audit
+            logger
         );
 
         registry.Register(tempSensor);
@@ -34,12 +34,12 @@ public class EndToEndWorkflowTests
 
         var rm = new ResourceManager();
         IStageExecutor executor = new SimulatedStageExecutor(rm);
-        IStageScheduler scheduler = new StageScheduler(executor, audit);
+        IStageScheduler scheduler = new StageScheduler(executor, logger);
 
         var rules = DefaultRules.Create();
         IRuleEvaluationPolicy policy = new UnionRuleEvaluationPolicy();
 
-        using var engine = new RuleEngine(registry, rules, policy, scheduler, audit);
+        using var engine = new RuleEngine(registry, rules, policy, scheduler, logger);
 
         // Act: start engine and wait a bit for sensor events to propagate
         engine.Start();

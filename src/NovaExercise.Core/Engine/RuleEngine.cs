@@ -12,7 +12,7 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
     private readonly IReadOnlyList<StageRule> _rules;
     private readonly IRuleEvaluationPolicy _policy;
     private readonly IStageScheduler _scheduler;
-    private readonly IAuditLogger _audit;
+    private readonly ISystemLogger _logger;
     private readonly CancellationTokenSource _cts = new();
 
     private readonly ConcurrentDictionary<SensorType, double> _currentValues = new();
@@ -30,13 +30,13 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
         IReadOnlyList<StageRule> rules,
         IRuleEvaluationPolicy policy,
         IStageScheduler scheduler,
-        IAuditLogger audit)
+        ISystemLogger logger)
     {
         _sensors = sensors;
         _rules = rules;
         _policy = policy;
         _scheduler = scheduler;
-        _audit = audit;
+        _logger = logger;
 
         _sensors.SensorRegistered += OnSensorRegistered;
         _sensors.SensorUnregistered += OnSensorUnregistered;
@@ -100,7 +100,7 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
             // StageScheduler.GetStageDefinition has no case for), and that was
             // escaping uncaught. Rules and stage requirements are both explicit
             // extensibility points, so a bug in either must not be invisible.
-            _audit.LogRuleEvaluationFailed(ex, values, DateTimeOffset.Now);
+            _logger.LogRuleEvaluationFailed(ex, values, DateTimeOffset.Now);
         }
     }
 

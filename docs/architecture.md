@@ -17,7 +17,7 @@ The system simulates a manufacturing controller that:
 - `SimulatedSensor`: Generates periodic readings every 100 ms. Each tick is
   individually fault-isolated: a throwing value-generator or a throwing
   `ReadingChanged` subscriber is caught, logged via
-  `IAuditLogger.LogSensorReadingFailed`, and the loop continues to the next
+  `ISystemLogger.LogSensorReadingFailed`, and the loop continues to the next
   tick rather than dying silently and permanently.
 - `ISensorRegistry`: Manages registration/unregistration of sensors, and raises
   `SensorRegistered` / `SensorUnregistered` when the set changes.
@@ -57,7 +57,7 @@ Responsibilities:
 - Guarantee at most one concurrent execution per stage id.
 - Execute stage logic concurrently.
 - Coordinate with `IResourceManager` for resource acquisition.
-- Log stage start/failure via `IAuditLogger`.
+- Log stage start/failure via `ISystemLogger`.
 
 ### Rules & Engine
 
@@ -73,7 +73,7 @@ Responsibilities:
 - Request stage execution via `IStageScheduler`, passing the sensor snapshot
   that led to the request (`StageScheduler` decides whether that request
   turns into an actual start, and logs accordingly — `RuleEngine` itself has
-  no audit-logging or resource/stage-definition knowledge).
+  no logging or resource/stage-definition knowledge beyond its own failures).
 - React to the sensor set changing at runtime: subscribe to a newly
   registered sensor, unsubscribe from a removed one, and move the
   subscription across when one is replaced — not just read the registry once
@@ -92,9 +92,14 @@ Responsibilities:
     rather than blocking a thread-pool thread for the wait.
   - Stage execution is asynchronous (`Task.Run` in `StageScheduler`).
 
-## Audit Logging
+## System Logging
 
-- Audit logging is implemented via `IAuditLogger` / `AuditLogger` in the `NovaExercise.Core.Logging` namespace.
+- Logging is implemented via `ISystemLogger` / `SystemLogger` in the
+  `NovaExercise.Core.Logging` namespace. It's deliberately one abstraction
+  for both normal operational events and failures, not two separate loggers
+  — a failure is itself a noteworthy event, and both share the same sink
+  (console today), so splitting them would just mean correlating two
+  streams by timestamp instead of reading one.
 - `StageScheduler` logs a stage as scheduled at the moment it actually
   transitions from not-running to running (guarded by the same `TryAdd` that
   prevents duplicate execution) — not every time a rule evaluation matches
@@ -119,7 +124,7 @@ Responsibilities:
   [AUDIT] 2026-09-16 13:25:20.789 | Sensor=Temperature | FAILED | InvalidOperationException: Simulated sensor fault
   ```
 
-- The logging abstraction allows swapping `AuditLogger` for other implementations (e.g., file-based or structured logging) without modifying core components.
+- The logging abstraction allows swapping `SystemLogger` for other implementations (e.g., file-based or structured logging) without modifying core components.
 
 ## Extensibility Points
 
@@ -147,7 +152,7 @@ flowchart TB
         SS[StageScheduler]
         RM[ResourceManager]
         SE[StageExecutor]
-        AL[AuditLogger]
+        AL[SystemLogger]
     end
 
     S1 -->|ReadingChanged| RE

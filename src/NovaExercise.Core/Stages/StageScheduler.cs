@@ -8,13 +8,13 @@ namespace NovaExercise.Core.Stages;
 public sealed class StageScheduler : IStageScheduler
 {
     private readonly IStageExecutor _executor;
-    private readonly IAuditLogger _audit;
+    private readonly ISystemLogger _logger;
     private readonly ConcurrentDictionary<StageId, TaskCompletionSource> _running = new();
 
-    public StageScheduler(IStageExecutor executor, IAuditLogger audit)
+    public StageScheduler(IStageExecutor executor, ISystemLogger logger)
     {
         _executor = executor;
-        _audit = audit;
+        _logger = logger;
     }
 
     public Task ScheduleStagesAsync(
@@ -43,10 +43,10 @@ public sealed class StageScheduler : IStageScheduler
             var def = GetStageDefinition(id);
 
             // Logged here - only on a genuine transition to running - rather than by
-            // the caller for every rule match, so the audit trail reflects what
-            // actually started rather than how many times a sensor tick re-evaluated
-            // rules that still pointed at an already-running stage.
-            _audit.LogStageScheduled(id, sensorValues, def.RequiredResources, DateTimeOffset.Now);
+            // the caller for every rule match, so the log reflects what actually
+            // started rather than how many times a sensor tick re-evaluated rules
+            // that still pointed at an already-running stage.
+            _logger.LogStageScheduled(id, sensorValues, def.RequiredResources, DateTimeOffset.Now);
 
             _ = Task.Run(() => ExecuteStageAsync(id, def, ct, completion));
         }
@@ -70,7 +70,7 @@ public sealed class StageScheduler : IStageScheduler
         }
         catch (Exception ex)
         {
-            _audit.LogStageFailed(id, ex, DateTimeOffset.Now);
+            _logger.LogStageFailed(id, ex, DateTimeOffset.Now);
         }
         finally
         {

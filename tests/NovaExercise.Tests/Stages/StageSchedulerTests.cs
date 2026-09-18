@@ -21,7 +21,7 @@ public class StageSchedulerTests
     {
         var rm = new ResourceManager();
         IStageExecutor executor = new SimulatedStageExecutor(rm);
-        IStageScheduler scheduler = new StageScheduler(executor, new AuditLogger());
+        IStageScheduler scheduler = new StageScheduler(executor, new SystemLogger());
 
         var stages = new[] { StageId.Stage1, StageId.Stage2 };
         var sensorValues = new Dictionary<SensorType, double>();
@@ -44,7 +44,7 @@ public class StageSchedulerTests
         // can call ScheduleStagesAsync for the same stage at nearly the same time.
         // The scheduler must guarantee at most one in-flight execution per stage id.
         var executor = new TrackingStageExecutor();
-        IStageScheduler scheduler = new StageScheduler(executor, new AuditLogger());
+        IStageScheduler scheduler = new StageScheduler(executor, new SystemLogger());
         using var cts = new CancellationTokenSource();
         var sensorValues = new Dictionary<SensorType, double>();
 
@@ -69,7 +69,7 @@ public class StageSchedulerTests
         // stage permanently unschedulable. A later call with a fresh token must
         // still be able to claim and run the same stage.
         var executor = new TrackingStageExecutor();
-        IStageScheduler scheduler = new StageScheduler(executor, new AuditLogger());
+        IStageScheduler scheduler = new StageScheduler(executor, new SystemLogger());
         var sensorValues = new Dictionary<SensorType, double>();
 
         using (var cancelledCts = new CancellationTokenSource())
@@ -107,14 +107,14 @@ public class StageSchedulerTests
         // no test coverage at all before this.
         var rm = new ResourceManager();
         var executor = new FailingStageExecutor(rm);
-        var audit = new SpyAuditLogger();
-        IStageScheduler scheduler = new StageScheduler(executor, audit);
+        var logger = new SpySystemLogger();
+        IStageScheduler scheduler = new StageScheduler(executor, logger);
         var sensorValues = new Dictionary<SensorType, double>();
 
         await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, CancellationToken.None);
-        Assert.True(await audit.WaitForFailureAsync(WaitCeiling), "expected the first failure to be logged");
+        Assert.True(await logger.WaitForFailureAsync(WaitCeiling), "expected the first failure to be logged");
 
-        var failure = Assert.Single(audit.Failures);
+        var failure = Assert.Single(logger.Failures);
         Assert.Equal(StageId.Stage1, failure.StageId);
         Assert.IsType<InvalidOperationException>(failure.Exception);
 
@@ -126,9 +126,9 @@ public class StageSchedulerTests
         // The _running slot must be freed too - scheduling Stage1 again must
         // actually reach the executor a second time, not silently no-op.
         await scheduler.ScheduleStagesAsync(new[] { StageId.Stage1 }, sensorValues, CancellationToken.None);
-        Assert.True(await audit.WaitForFailureAsync(WaitCeiling), "expected the second failure to be logged");
+        Assert.True(await logger.WaitForFailureAsync(WaitCeiling), "expected the second failure to be logged");
 
-        Assert.Equal(2, audit.Failures.Count);
+        Assert.Equal(2, logger.Failures.Count);
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class StageSchedulerTests
         // burst actually ran, only whether the stage is still schedulable at all
         // once it settles.
         var executor = new InstantStageExecutor();
-        IStageScheduler scheduler = new StageScheduler(executor, new NullAuditLogger());
+        IStageScheduler scheduler = new StageScheduler(executor, new NullSystemLogger());
         var sensorValues = new Dictionary<SensorType, double>();
 
         for (var attempt = 0; attempt < 20_000; attempt++)
@@ -203,7 +203,7 @@ public class StageSchedulerTests
         }
     }
 
-    private sealed class NullAuditLogger : IAuditLogger
+    private sealed class NullSystemLogger : ISystemLogger
     {
         public void LogStageScheduled(
             StageId stageId,
@@ -246,7 +246,7 @@ public class StageSchedulerTests
         }
     }
 
-    private sealed class SpyAuditLogger : IAuditLogger
+    private sealed class SpySystemLogger : ISystemLogger
     {
         public sealed record Failure(StageId StageId, Exception Exception);
 
@@ -295,7 +295,7 @@ public class StageSchedulerTests
     /// pool contention of a full parallel test run (observed directly: a sibling test
     /// using Task.Delay(200) here failed intermittently before this was added).
     /// WaitForCompletionsAsync uses WaitAsync for the same reason described on
-    /// SpyAuditLogger.WaitForFailureAsync above.</summary>
+    /// SpySystemLogger.WaitForFailureAsync above.</summary>
     private sealed class TrackingStageExecutor : IStageExecutor
     {
         private int _current;

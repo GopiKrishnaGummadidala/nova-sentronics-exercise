@@ -4,7 +4,7 @@ using NovaExercise.Core.Stages;
 
 namespace NovaExercise.Core.Logging;
 
-public interface IAuditLogger
+public interface ISystemLogger
 {
     void LogStageScheduled(
         StageId stageId,

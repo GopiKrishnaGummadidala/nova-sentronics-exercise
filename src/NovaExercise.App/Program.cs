@@ -21,20 +21,20 @@ using var provider = services.BuildServiceProvider();
 // Sensors are constructed directly rather than registered in the container:
 // each SimulatedSensor instance needs its own SensorType and value-generator
 // lambda, so there's no single "the" ISensor implementation to register. Only
-// the registry they're published through - and the audit logger, resolved once
-// here and passed to both - comes from DI.
-var audit = provider.GetRequiredService<IAuditLogger>();
+// the registry they're published through - and the logger, resolved once here
+// and passed to both - comes from DI.
+var logger = provider.GetRequiredService<ISystemLogger>();
 
 var tempSensor = new SimulatedSensor(
     SensorType.Temperature,
     () => 15 + Random.Shared.NextDouble() * 10, // 15–25 → always > 10, often > 20
-    audit
+    logger
 );
 
 var pressureSensor = new SimulatedSensor(
     SensorType.Pressure,
     () => 40 + Random.Shared.NextDouble() * 40, // 40–80 → always < 100, sometimes < 50
-    audit
+    logger
 );
 
 var registry = provider.GetRequiredService<ISensorRegistry>();

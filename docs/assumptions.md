@@ -41,7 +41,7 @@ This document lists key assumptions made in the design and implementation.
   - No new stages requiring that resource will start.
   - Running stages are allowed to complete (simplified model).
 - Exceptions in stage execution are caught inside `StageScheduler` and logged
-  via `IAuditLogger.LogStageFailed`; they do not crash the process.
+  via `ISystemLogger.LogStageFailed`; they do not crash the process.
   `OperationCanceledException` is treated as expected shutdown noise and is
   not logged as a failure. (Earlier in development this task's exceptions
   were unobserved — the executing `Task` was stored but never awaited or
@@ -54,7 +54,7 @@ This document lists key assumptions made in the design and implementation.
   would otherwise fault that `Task` silently. Both are real risks, since rules
   and stage requirements are explicit extensibility points. Both are now
   caught by one try/catch around the whole evaluate-then-schedule sequence and
-  logged via `IAuditLogger.LogRuleEvaluationFailed`; the reading that
+  logged via `ISystemLogger.LogRuleEvaluationFailed`; the reading that
   triggered it is simply not acted on, and later readings are unaffected.
 - Sensors are a third instance of the same shape: `SimulatedSensor.RunLoop`
   calls a caller-supplied value-generator and invokes `ReadingChanged` on its
@@ -62,7 +62,7 @@ This document lists key assumptions made in the design and implementation.
   or a throwing subscriber used to end that sensor's ticking permanently and
   silently — every consumer would keep using its last stale reading forever
   with no record anything had gone wrong. Now each tick is individually
-  caught and logged via `IAuditLogger.LogSensorReadingFailed`; the loop
+  caught and logged via `ISystemLogger.LogSensorReadingFailed`; the loop
   continues to the next tick 100ms later rather than dying.
 
 ## Sensors & Extensibility
@@ -85,12 +85,12 @@ This document lists key assumptions made in the design and implementation.
 
 - No database or persistent storage is used.
 - The system operates entirely in memory.
-- Audit information is written to the console via `AuditLogger`, logged by
+- Log output is written to the console via `SystemLogger`, logged by
   `StageScheduler` at the moment a stage actually **starts** (not merely when
   a rule matches it) — including which stage, the sensor values at that time,
   and the required resources — plus a `LogStageFailed` entry if execution
   throws.
-- This console-based audit logging could be replaced by a persistent logging mechanism (file, database, or centralized logging service) without changing the core logic.
+- This console-based logging could be replaced by a persistent logging mechanism (file, database, or centralized logging service) without changing the core logic.
 
 ## Concurrency Model
 

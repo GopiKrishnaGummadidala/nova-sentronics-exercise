@@ -12,13 +12,13 @@ public sealed class SimulatedSensor : ISensor, IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _tickerTask;
     private readonly Func<double> _valueGenerator;
-    private readonly IAuditLogger _audit;
+    private readonly ISystemLogger _logger;
 
-    public SimulatedSensor(SensorType type, Func<double> valueGenerator, IAuditLogger audit)
+    public SimulatedSensor(SensorType type, Func<double> valueGenerator, ISystemLogger logger)
     {
         Type = type;
         _valueGenerator = valueGenerator;
-        _audit = audit;
+        _logger = logger;
         _tickerTask = Task.Run(() => RunLoop(_cts.Token));
     }
 
@@ -42,7 +42,7 @@ public sealed class SimulatedSensor : ISensor, IDisposable
                 // anywhere that anything had gone wrong. Thread.Sleep(100) below
                 // stays outside this try so a persistently-throwing generator still
                 // paces itself at the normal tick rate instead of spinning.
-                _audit.LogSensorReadingFailed(Type, ex, DateTimeOffset.Now);
+                _logger.LogSensorReadingFailed(Type, ex, DateTimeOffset.Now);
             }
 
             Thread.Sleep(100);

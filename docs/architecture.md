@@ -45,6 +45,7 @@ Responsibilities:
 - `StageDefinition`: Defines a stage (Stage1, Stage2, Stage3) and its required resources.
 - `IStageExecutor` / `SimulatedStageExecutor`: Executes a stage (simulated work).
 - `IStageScheduler` / `StageScheduler`: Schedules stages, ensuring at most one instance per stage runs at a time (via an atomic `ConcurrentDictionary.TryAdd` reservation), and is the single place that logs a stage as scheduled (on actual start) or failed.
+- `NaiveStageTracker`: A check‑then‑act‑prone tracker used for demonstration — reproduces the atomicity violation `StageScheduler` once had (see [Concurrency Design](concurrency.md)).
 
 Responsibilities:
 

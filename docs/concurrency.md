@@ -118,7 +118,12 @@ of a given stage runs at a time" invariant (see
 200,000‑iteration repro of the same check‑then‑act shape (5 double‑passes
 observed), and empirically in this app: with the race in place, the audit log
 would show the same stage "scheduled" twice at the same timestamp whenever
-both sensors ticked close together.
+both sensors ticked close together. The same shape is reproduced as a
+runnable, deterministic demo in `NovaExercise.ConcurrencyDemos`
+(`NaiveStageTracker`) — an artificial delay between the check and the write
+widens the race window the same way `ResourceManagerNaive`'s does for the
+deadlock demo, so it reproduces on every run instead of needing 200,000
+attempts to get lucky.
 
 **How we fixed it:** replace the check‑then‑act with a single atomic
 operation, `_running.TryAdd(id, ...)`. `TryAdd` either claims the slot
@@ -238,12 +243,14 @@ Use(resources); // may see partially initialized resources
 - `StageSchedulerTests.ScheduleStagesAsync_ConcurrentCallsForSameStage_NeverRunsMoreThanOneAtOnce` fires 50 concurrent `ScheduleStagesAsync` calls for the same stage and asserts the executor never observes more than one concurrent execution — a regression test for the atomicity violation above.
 - `StageSchedulerTests.ScheduleStagesAsync_AfterABurstOfFastCompletions_TheStageIsStillSchedulable` fires 20,000 unpaced `ScheduleStagesAsync` calls against a synchronously-completing executor and asserts the stage can still complete afterward — a regression test for the reservation-lifecycle race above, which none of the other tests could reach since every other executor here genuinely yields.
 - `EndToEndWorkflowTests` exercise the full pipeline with concurrent sensor updates and stage executions.
-- `NovaExercise.ConcurrencyDemos` provides a manual, genuinely‑reproducing demonstration of deadlock with `ResourceManagerNaive`.
+- `NovaExercise.ConcurrencyDemos` provides a manual, genuinely‑reproducing
+  demonstration of deadlock with `ResourceManagerNaive`, and of the
+  check‑then‑act atomicity violation above with `NaiveStageTracker`.
 
 ## Summary
 
 - Deadlocks are prevented in `ResourceManager` by **never holding one resource while waiting on another** (avoiding hold‑and‑wait), with sorted acquisition order kept as harmless defense‑in‑depth.
 - `ResourceManagerNaive` deliberately does the opposite — holds a lock while waiting for the next one — to give a genuine, reproducible deadlock for the exercise's "present at least one deadlock" requirement.
-- Atomicity violations are avoided by using single atomic operations (`TryMarkBusy`, `ConcurrentDictionary.TryAdd`) instead of separate check‑then‑act steps — including a real one found and fixed in `StageScheduler` during review, not just the textbook `Resource.State` example.
+- Atomicity violations are avoided by using single atomic operations (`TryMarkBusy`, `ConcurrentDictionary.TryAdd`) instead of separate check‑then‑act steps — including a real one found and fixed in `StageScheduler` during review, not just the textbook `Resource.State` example. `NaiveStageTracker` reproduces that exact bug on demand, the same way `ResourceManagerNaive` does for the deadlock above.
 - Order violations are avoided by **careful construction and publication** of shared objects.
 - The design is intentionally simple and explicit to make concurrency reasoning straightforward.

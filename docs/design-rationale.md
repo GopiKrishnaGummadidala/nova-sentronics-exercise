@@ -207,26 +207,35 @@ timeouts); a `SemaphoreSlim`-per-resource would be the next step if this
 needed to scale to many more resources or much tighter acquire-latency
 requirements.
 
-### The naive manager is a real, separate class — not a comment
+### The naive demo classes are real, separate classes — not comments
 
-**Decision:** `ResourceManagerNaive` is a fully working, independently
-runnable implementation of the same interface, exercised by its own console
-demo, rather than a code comment describing "the bug we didn't write."
+**Decision:** `ResourceManagerNaive` and `NaiveStageTracker` are each fully
+working, independently runnable pieces of code, exercised by
+`NovaExercise.ConcurrencyDemos`, rather than a code comment describing "the
+bug we didn't write."
 
-**Why:** the exercise explicitly asks candidates to *present* a deadlock,
-not just describe one in prose. A class that actually deadlocks when run is
-verifiable — anyone can run `NovaExercise.ConcurrencyDemos` and watch both
-threads block for the real acquisition timeout before failing. It also
-means the "bad" hold-and-wait pattern never has a path into the production
-`ResourceManager` — there's no shared code or shortcut between the two, so
-fixing one can't silently reintroduce the bug in the other.
+**Why:** the exercise explicitly asks candidates to *present* concurrency
+bugs, not just describe them in prose. A class that actually deadlocks, or
+actually lets two callers both "start" the same stage, when run is
+verifiable — anyone can run `NovaExercise.ConcurrencyDemos` and watch it
+happen, rather than trust a claim or a passing unit test alone. It also
+means neither "bad" pattern — hold-and-wait, or check-then-act on shared
+state — has a path into the real `ResourceManager` or `StageScheduler`:
+there's no shared code or shortcut between a naive class and its production
+counterpart, so fixing one can't silently reintroduce the bug in the other.
 
-**Trade-off:** some duplication between the two resource managers (both
-implement `IResourceManager`, both loop over requested resources). Given
-one of them exists purely to demonstrate a failure mode, sharing code
-between "demonstrates a bug on purpose" and "must never have that bug" felt
-like the wrong kind of DRY — a shared helper touched while fixing the real
-manager could silently patch the demo too.
+**Trade-off:** some duplication — `ResourceManagerNaive` re-implements
+`IResourceManager`'s loop-over-requested-resources shape, and
+`NaiveStageTracker` re-implements the check-then-act shape `StageScheduler`
+used to have. Given each of these exists purely to demonstrate a failure
+mode, sharing code between "demonstrates a bug on purpose" and "must never
+have that bug" felt like the wrong kind of DRY — a shared helper touched
+while fixing the real component could silently patch the demo too. Both
+naive classes also use an artificial delay to widen their respective race
+windows (`ArtificialWorkBetweenLocks`, `ArtificialGapBetweenCheckAndWrite`)
+so the bug reproduces deterministically on every run instead of needing many
+attempts to get lucky — real instances of either bug don't need any such
+delay to occur.
 
 ### Stage scheduling owns "did this actually start," not the rule engine
 

@@ -22,7 +22,7 @@ This repository contains a reference implementation for the Nova Sentronics Seni
 - `src/NovaExercise.Core` – Domain models, interfaces, and core logic.
 - `src/NovaExercise.App` – Console application wiring everything together.
 - `tests/NovaExercise.Tests` – Unit and integration tests.
-- `tests/NovaExercise.ConcurrencyDemos` – Demo project showing a deadlock‑prone resource manager.
+- `tests/NovaExercise.ConcurrencyDemos` – Demo project showing a deadlock‑prone resource manager and a check‑then‑act atomicity violation.
 
 ## Build & Run
 
@@ -52,15 +52,25 @@ runtime), plus integration tests covering the DI composition root, an
 end‑to‑end sensor‑to‑stage workflow, and concurrent resource contention
 across the full stage map.
 
-## Concurrency Demo
+## Concurrency Demos
 
-The `NovaExercise.ConcurrencyDemos` project demonstrates how a naive resource manager can deadlock.
+The `NovaExercise.ConcurrencyDemos` project runs two demonstrations back to back:
+
+1. How a naive resource manager (`ResourceManagerNaive`) can deadlock.
+2. How a naive check-then-act stage tracker (`NaiveStageTracker`) lets two
+   concurrent callers both believe they started the same stage — the real
+   atomicity violation `StageScheduler` once had (see
+   [docs/concurrency.md](docs/concurrency.md)).
 
 ```bash
 dotnet run --project tests/NovaExercise.ConcurrencyDemos/NovaExercise.ConcurrencyDemos.csproj
 ```
 
-> **Warning:** This demo genuinely deadlocks by design — both threads block for the full ~5s acquisition timeout before failing. It is for illustration only.
+> **Warning:** Demo 1 genuinely deadlocks by design — both threads block for
+> the full ~5s acquisition timeout before failing. Both demos are for
+> illustration only; the artificial delays inside `ResourceManagerNaive` and
+> `NaiveStageTracker` exist purely to make each race reproduce
+> deterministically on every run, not because either bug needs them to occur.
 
 ## Documentation
 

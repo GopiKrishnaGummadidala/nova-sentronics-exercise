@@ -48,11 +48,22 @@ This document lists key assumptions made in the design and implementation.
   inspected for faults — so failures were silently dropped instead of logged;
   this is now covered by an explicit `catch`.)
 - The same class of bug existed one layer up: `RuleEngine.EvaluateAndScheduleAsync`
-  is invoked fire-and-forget (its returned `Task` is discarded), so a rule
-  predicate that throws — a real risk, since rules are an explicit
-  extensibility point — would otherwise fault that `Task` silently. Now caught
-  and logged via `IAuditLogger.LogRuleEvaluationFailed`; the reading that
+  is invoked fire-and-forget (its returned `Task` is discarded), so an
+  exception anywhere in it — a throwing rule predicate, or `StageScheduler`
+  itself throwing (e.g. a rule pointing at a `StageId` it has no case for) —
+  would otherwise fault that `Task` silently. Both are real risks, since rules
+  and stage requirements are explicit extensibility points. Both are now
+  caught by one try/catch around the whole evaluate-then-schedule sequence and
+  logged via `IAuditLogger.LogRuleEvaluationFailed`; the reading that
   triggered it is simply not acted on, and later readings are unaffected.
+- Sensors are a third instance of the same shape: `SimulatedSensor.RunLoop`
+  calls a caller-supplied value-generator and invokes `ReadingChanged` on its
+  own background thread, with no supervisor watching it. A throwing generator
+  or a throwing subscriber used to end that sensor's ticking permanently and
+  silently — every consumer would keep using its last stale reading forever
+  with no record anything had gone wrong. Now each tick is individually
+  caught and logged via `IAuditLogger.LogSensorReadingFailed`; the loop
+  continues to the next tick 100ms later rather than dying.
 
 ## Sensors & Extensibility
 

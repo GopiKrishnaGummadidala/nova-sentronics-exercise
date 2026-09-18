@@ -223,6 +223,10 @@ public class StageSchedulerTests
             DateTimeOffset timestamp)
         {
         }
+
+        public void LogSensorReadingFailed(SensorType sensorType, Exception exception, DateTimeOffset timestamp)
+        {
+        }
     }
 
     /// <summary>Acquires resources like a real executor, then always fails - simulating
@@ -272,6 +276,10 @@ public class StageSchedulerTests
             Exception exception,
             IReadOnlyDictionary<SensorType, double> sensorValues,
             DateTimeOffset timestamp)
+        {
+        }
+
+        public void LogSensorReadingFailed(SensorType sensorType, Exception exception, DateTimeOffset timestamp)
         {
         }
 

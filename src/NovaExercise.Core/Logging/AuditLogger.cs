@@ -49,4 +49,13 @@ public sealed class AuditLogger : IAuditLogger
             $"{exception.GetType().Name}: {exception.Message}"
         );
     }
+
+    public void LogSensorReadingFailed(SensorType sensorType, Exception exception, DateTimeOffset timestamp)
+    {
+        Console.WriteLine(
+            $"[AUDIT] {timestamp:yyyy-MM-dd HH:mm:ss.fff} | " +
+            $"Sensor={sensorType} | FAILED | " +
+            $"{exception.GetType().Name}: {exception.Message}"
+        );
+    }
 }

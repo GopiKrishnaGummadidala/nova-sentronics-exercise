@@ -258,6 +258,32 @@ public class RuleEngineTests
         Assert.Empty(scheduler.Calls);
     }
 
+    [Fact]
+    public async Task EvaluateAndScheduleAsync_SchedulerThrows_LogsTheFailure()
+    {
+        // EvaluateAndScheduleAsync's try/catch originally only wrapped
+        // _policy.Evaluate(...), not the ScheduleStagesAsync call after it - so an
+        // exception from the scheduler itself (e.g. StageScheduler.GetStageDefinition
+        // throwing for a StageId a newly-added rule points at but has no case for)
+        // would escape the fire-and-forget Task uncaught and unlogged. This verifies
+        // the scheduler call is now covered by the same catch.
+        var registry = new SensorRegistry();
+        var tempSensor = new FakeSensor(SensorType.Temperature);
+        var pressureSensor = new FakeSensor(SensorType.Pressure);
+        registry.Register(tempSensor);
+        registry.Register(pressureSensor);
+
+        var scheduler = new ThrowingStageScheduler();
+        var audit = new SpyAuditLogger();
+        using var engine = new RuleEngine(registry, Rules, Policy, scheduler, audit);
+        engine.Start();
+
+        tempSensor.Emit(25.0);
+
+        Assert.True(await audit.WaitForFailureAsync(CallTimeout));
+        Assert.IsType<InvalidOperationException>(audit.LastFailureException);
+    }
+
     /// <summary>
     /// Fires ReadingChanged on command instead of a 100ms background timer, so tests
     /// can assert on a specific reading at a specific instant instead of racing a
@@ -348,6 +374,24 @@ public class RuleEngineTests
             _signal.Release();
         }
 
+        public void LogSensorReadingFailed(SensorType sensorType, Exception exception, DateTimeOffset timestamp)
+        {
+        }
+
         public Task<bool> WaitForFailureAsync(TimeSpan timeout) => _signal.WaitAsync(timeout);
+    }
+
+    /// <summary>Always throws, simulating a bug reachable only once a new rule points
+    /// at a StageId the scheduler has no case for - verifies EvaluateAndScheduleAsync's
+    /// try/catch covers the ScheduleStagesAsync call itself, not just rule evaluation.</summary>
+    private sealed class ThrowingStageScheduler : IStageScheduler
+    {
+        public Task ScheduleStagesAsync(
+            IReadOnlyCollection<StageId> stageIds,
+            IReadOnlyDictionary<SensorType, double> sensorValues,
+            CancellationToken ct)
+        {
+            throw new InvalidOperationException("Simulated scheduler bug");
+        }
     }
 }

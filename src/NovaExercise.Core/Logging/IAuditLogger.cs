@@ -24,4 +24,10 @@ public interface IAuditLogger
         IReadOnlyDictionary<SensorType, double> sensorValues,
         DateTimeOffset timestamp
     );
+
+    void LogSensorReadingFailed(
+        SensorType sensorType,
+        Exception exception,
+        DateTimeOffset timestamp
+    );
 }

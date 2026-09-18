@@ -14,7 +14,11 @@ The system simulates a manufacturing controller that:
 ### Sensors
 
 - `ISensor`: Represents a sensor with a type, current reading, and `ReadingChanged` event.
-- `SimulatedSensor`: Generates periodic readings every 100 ms.
+- `SimulatedSensor`: Generates periodic readings every 100 ms. Each tick is
+  individually fault-isolated: a throwing value-generator or a throwing
+  `ReadingChanged` subscriber is caught, logged via
+  `IAuditLogger.LogSensorReadingFailed`, and the loop continues to the next
+  tick rather than dying silently and permanently.
 - `ISensorRegistry`: Manages registration/unregistration of sensors, and raises
   `SensorRegistered` / `SensorUnregistered` when the set changes.
 - `SensorRegistry`: In‑memory implementation of `ISensorRegistry`.
@@ -103,12 +107,16 @@ Responsibilities:
   - Timestamp
 - If a stage's execution throws, `StageScheduler` logs it via
   `LogStageFailed` (`OperationCanceledException` from normal shutdown is not
-  treated as a failure).
+  treated as a failure). If rule evaluation or scheduling itself throws,
+  `RuleEngine` logs it via `LogRuleEvaluationFailed`. If a sensor's own
+  value-generator or a `ReadingChanged` subscriber throws, `SimulatedSensor`
+  logs it via `LogSensorReadingFailed`.
 - Example log lines:
 
   ```text
   [AUDIT] 2026-09-16 13:25:10.123 | Stage=Stage1 | Sensors=Temperature:15.23, Pressure:78.90 | Resources=R_A, R_B
   [AUDIT] 2026-09-16 13:25:15.456 | Stage=Stage2 | FAILED | TimeoutException: Timed out waiting for resource R_C to become available (requested: R_B, R_C, timeout: 00:00:05)
+  [AUDIT] 2026-09-16 13:25:20.789 | Sensor=Temperature | FAILED | InvalidOperationException: Simulated sensor fault
   ```
 
 - The logging abstraction allows swapping `AuditLogger` for other implementations (e.g., file-based or structured logging) without modifying core components.

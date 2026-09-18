@@ -84,23 +84,24 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
     {
         var values = _currentValues.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-        IReadOnlyCollection<StageId> stages;
         try
         {
-            stages = _policy.Evaluate(_rules, values);
+            var stages = _policy.Evaluate(_rules, values);
+            await _scheduler.ScheduleStagesAsync(stages, values, _cts.Token);
         }
         catch (Exception ex)
         {
             // EvaluateAndScheduleAsync's returned Task is discarded by the
-            // fire-and-forget call in OnReadingChanged, so an exception here
-            // would otherwise fault that Task silently - no crash, no record,
-            // nothing. Rules are an explicit extensibility point ("new rules
-            // may be introduced"), so a bug in one must not be invisible.
+            // fire-and-forget call in OnReadingChanged, so an exception anywhere
+            // in this method - not just rule evaluation - would otherwise fault
+            // that Task silently, with no crash and no record. Originally only
+            // _policy.Evaluate(...) was wrapped; ScheduleStagesAsync can also
+            // throw synchronously (e.g. a rule pointing at a StageId
+            // StageScheduler.GetStageDefinition has no case for), and that was
+            // escaping uncaught. Rules and stage requirements are both explicit
+            // extensibility points, so a bug in either must not be invisible.
             _audit.LogRuleEvaluationFailed(ex, values, DateTimeOffset.Now);
-            return;
         }
-
-        await _scheduler.ScheduleStagesAsync(stages, values, _cts.Token);
     }
 
     public void Start()

@@ -22,7 +22,7 @@ This repository contains a reference implementation for the Nova Sentronics Seni
 - `src/NovaExercise.Core` – Domain models, interfaces, and core logic.
 - `src/NovaExercise.App` – Console application wiring everything together.
 - `tests/NovaExercise.Tests` – Unit and integration tests.
-- `tests/NovaExercise.ConcurrencyDemos` – Three narrated demos: a deadlock, a check‑then‑act atomicity violation, and the real `ResourceManager` handling the same contention correctly (see its own [README](tests/NovaExercise.ConcurrencyDemos/README.md)).
+- `tests/NovaExercise.ConcurrencyDemos` – Four narrated demos: a deadlock, a check‑then‑act atomicity violation, an order violation, and the real `ResourceManager` handling the same contention correctly (see its own [README](tests/NovaExercise.ConcurrencyDemos/README.md)).
 
 ## Build & Run
 
@@ -55,8 +55,9 @@ resource contention across the full stage map.
 
 ## Concurrency Demos
 
-The `NovaExercise.ConcurrencyDemos` project runs three narrated demonstrations
-back to back: a genuine deadlock, a genuine atomicity violation, and the real
+The `NovaExercise.ConcurrencyDemos` project runs four narrated demonstrations
+back to back — one for each concurrency bug category the exercise names
+(deadlock, atomicity violation, order violation), plus the real
 `ResourceManager` correctly resolving the same kind of contention that breaks
 the first one. See [its own README](tests/NovaExercise.ConcurrencyDemos/README.md)
 for what each one shows.
@@ -66,7 +67,7 @@ dotnet run --project tests/NovaExercise.ConcurrencyDemos/NovaExercise.Concurrenc
 ```
 
 > **Warning:** Demo 1 genuinely deadlocks by design — both threads block for
-> the full ~5s acquisition timeout before failing. All three demos use
+> the full ~5s acquisition timeout before failing. All four demos use
 > artificial delays purely to make their outcomes reproduce deterministically
 > on every run, not because any of the underlying behavior needs them to occur.
 

@@ -209,20 +209,32 @@ requirements.
 
 ### The naive demo classes are real, separate classes — not comments
 
-**Decision:** `ResourceManagerNaive` and `NaiveStageTracker` are each fully
-working, independently runnable pieces of code, exercised by
-`NovaExercise.ConcurrencyDemos`, rather than a code comment describing "the
-bug we didn't write."
+**Decision:** `ResourceManagerNaive`, `NaiveStageTracker`, and
+`NaiveLazyConfig` are each fully working, independently runnable pieces of
+code, exercised by `NovaExercise.ConcurrencyDemos`, rather than a code
+comment describing "the bug we didn't write."
 
 **Why:** the exercise explicitly asks candidates to *present* concurrency
-bugs, not just describe them in prose. A class that actually deadlocks, or
-actually lets two callers both "start" the same stage, when run is
-verifiable — anyone can run `NovaExercise.ConcurrencyDemos` and watch it
-happen, rather than trust a claim or a passing unit test alone. It also
-means neither "bad" pattern — hold-and-wait, or check-then-act on shared
-state — has a path into the real `ResourceManager` or `StageScheduler`:
-there's no shared code or shortcut between a naive class and its production
-counterpart, so fixing one can't silently reintroduce the bug in the other.
+bugs, not just describe them in prose. A class that actually deadlocks, lets
+two callers both "start" the same stage, or lets a reader observe
+not-yet-published state, when run is verifiable — anyone can run
+`NovaExercise.ConcurrencyDemos` and watch it happen, rather than trust a
+claim or a passing unit test alone. For the first two, it also means neither
+"bad" pattern — hold-and-wait, or check-then-act on shared state — has a
+path into the real `ResourceManager` or `StageScheduler`: there's no shared
+code or shortcut between a naive class and its production counterpart, so
+fixing one can't silently reintroduce the bug in the other.
+
+**Where `NaiveLazyConfig` differs:** `ResourceManagerNaive` and
+`NaiveStageTracker` each mirror a bug shape this codebase's real components
+actually had — `ResourceManager`'s hold-and-wait risk, and the real
+check-then-act race fixed in `StageScheduler`. `NaiveLazyConfig` doesn't:
+`SensorRegistry` and `RuleEngine` were always properly ordered, so there's no
+real "fixed" counterpart for it to sit alongside. It exists purely to give
+the order-violation category a live demo the same way the other two have
+one for theirs, which is also why it lives in `NovaExercise.ConcurrencyDemos`
+itself rather than `NovaExercise.Core`: it's honestly a generic illustration
+of the bug category, not a stand-in for a real risk in the production code.
 
 **Trade-off:** some duplication — `ResourceManagerNaive` re-implements
 `IResourceManager`'s loop-over-requested-resources shape, and
@@ -230,12 +242,12 @@ counterpart, so fixing one can't silently reintroduce the bug in the other.
 used to have. Given each of these exists purely to demonstrate a failure
 mode, sharing code between "demonstrates a bug on purpose" and "must never
 have that bug" felt like the wrong kind of DRY — a shared helper touched
-while fixing the real component could silently patch the demo too. Both
+while fixing the real component could silently patch the demo too. All three
 naive classes also use an artificial delay to widen their respective race
-windows (`ArtificialWorkBetweenLocks`, `ArtificialGapBetweenCheckAndWrite`)
-so the bug reproduces deterministically on every run instead of needing many
-attempts to get lucky — real instances of either bug don't need any such
-delay to occur.
+windows (`ArtificialWorkBetweenLocks`, `ArtificialGapBetweenCheckAndWrite`,
+`ArtificialInitializationDelay`) so the bug reproduces deterministically on
+every run instead of needing many attempts to get lucky — real instances of
+any of the three don't need any such delay to occur.
 
 ### Stage scheduling owns "did this actually start," not the rule engine
 

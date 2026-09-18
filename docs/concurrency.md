@@ -237,22 +237,36 @@ Use(resources); // may see partially initialized resources
 - `RuleEngine` subscribes to sensors in its constructor; no background thread uses it before construction completes.
 - We rely on .NET’s memory model and proper task scheduling; no unsafe “publish then initialize” patterns are used.
 
+This shape — a required order between two operations across threads with
+nothing actually enforcing it — is reproduced as a runnable, deterministic
+demo in `NovaExercise.ConcurrencyDemos` (`NaiveLazyConfig`): one thread calls
+`Initialize()`, which takes a moment, while another calls `GetSetting()` with
+no wait and no synchronization between them. The worker reliably reads the
+not-yet-published value, the same way the check-then-act and hold-and-wait
+demos above use an artificial delay to make their own races deterministic
+rather than a timing coin flip. Unlike those two, this doesn't mirror a bug
+this codebase's real components ever had — `SensorRegistry` and `RuleEngine`
+were always properly ordered — so `NaiveLazyConfig` lives in the demos
+project itself rather than `NovaExercise.Core`; see
+[Design Rationale](design-rationale.md).
+
 ## Testing Concurrency
 
 - `ResourceManagerTests` verify correct behavior under contention (e.g., failed acquisitions release all resources, busy resources cause a `TimeoutException` rather than corrupting state).
 - `StageSchedulerTests.ScheduleStagesAsync_ConcurrentCallsForSameStage_NeverRunsMoreThanOneAtOnce` fires 50 concurrent `ScheduleStagesAsync` calls for the same stage and asserts the executor never observes more than one concurrent execution — a regression test for the atomicity violation above.
 - `StageSchedulerTests.ScheduleStagesAsync_AfterABurstOfFastCompletions_TheStageIsStillSchedulable` fires 20,000 unpaced `ScheduleStagesAsync` calls against a synchronously-completing executor and asserts the stage can still complete afterward — a regression test for the reservation-lifecycle race above, which none of the other tests could reach since every other executor here genuinely yields.
 - `EndToEndWorkflowTests` exercise the full pipeline with concurrent sensor updates and stage executions.
-- `NovaExercise.ConcurrencyDemos` provides three manual, genuinely‑reproducing
+- `NovaExercise.ConcurrencyDemos` provides four manual, genuinely‑reproducing
   demonstrations: deadlock with `ResourceManagerNaive`, the check‑then‑act
-  atomicity violation above with `NaiveStageTracker`, and — for contrast —
-  the real `ResourceManager` correctly resolving the same kind of resource
-  contention across repeated rounds, with no overlap and no deadlock.
+  atomicity violation above with `NaiveStageTracker`, the order violation
+  above with `NaiveLazyConfig`, and — for contrast — the real
+  `ResourceManager` correctly resolving the same kind of resource contention
+  across repeated rounds, with no overlap and no deadlock.
 
 ## Summary
 
 - Deadlocks are prevented in `ResourceManager` by **never holding one resource while waiting on another** (avoiding hold‑and‑wait), with sorted acquisition order kept as harmless defense‑in‑depth.
 - `ResourceManagerNaive` deliberately does the opposite — holds a lock while waiting for the next one — to give a genuine, reproducible deadlock for the exercise's "present at least one deadlock" requirement.
 - Atomicity violations are avoided by using single atomic operations (`TryMarkBusy`, `ConcurrentDictionary.TryAdd`) instead of separate check‑then‑act steps — including a real one found and fixed in `StageScheduler` during review, not just the textbook `Resource.State` example. `NaiveStageTracker` reproduces that exact bug on demand, the same way `ResourceManagerNaive` does for the deadlock above.
-- Order violations are avoided by **careful construction and publication** of shared objects.
+- Order violations are avoided by **careful construction and publication** of shared objects. `NaiveLazyConfig` reproduces the bug this class of mistake would cause on demand, the same way the other two naive classes do for their own categories — see the demos project.
 - The design is intentionally simple and explicit to make concurrency reasoning straightforward.

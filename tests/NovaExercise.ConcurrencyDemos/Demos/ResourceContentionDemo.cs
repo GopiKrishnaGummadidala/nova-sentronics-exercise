@@ -20,7 +20,7 @@ public static class ResourceContentionDemo
 
     public static async Task RunAsync()
     {
-        Console.WriteLine("=== Demo 3: Resource Contention, Handled Correctly (ResourceManager) ===");
+        Console.WriteLine("=== Demo 4: Resource Contention, Handled Correctly (ResourceManager) ===");
 
         var rm = new ResourceManager();
         var heldResources = new HashSet<ResourceId>();
@@ -40,7 +40,7 @@ public static class ResourceContentionDemo
         Console.WriteLine(overlapDetected
             ? "UNEXPECTED: two stages held a shared resource at the same time."
             : $"VERIFIED: {Rounds} rounds completed, no two stages ever overlapped on a shared resource - and no deadlock, unlike Demo 1.");
-        Console.WriteLine("Demo 3 completed.");
+        Console.WriteLine("Demo 4 completed.");
     }
 
     private static async Task RunStageAsync(

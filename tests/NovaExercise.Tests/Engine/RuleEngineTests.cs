@@ -13,8 +13,9 @@ public class RuleEngineTests
     private static readonly IRuleEvaluationPolicy Policy = new UnionRuleEvaluationPolicy();
     // A ceiling, not a typical duration - this returns as soon as its signal
     // arrives. Widened from 2s after observing an occasional miss when the full
-    // suite runs alongside StageMapResourceContentionTests, which adds
-    // substantial real thread-pool load of its own (heavy Acquire polling).
+    // suite runs alongside StageMapResourceContentionTests, which adds real
+    // load of its own from genuine resource contention (its stage map is
+    // deliberately built so only one of its stages can hold resources at a time).
     private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(5);
 
     [Fact]

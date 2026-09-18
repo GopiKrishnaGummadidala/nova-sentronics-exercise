@@ -20,11 +20,13 @@ public class SimulatedStageExecutorTests
         // CancelAfter(50ms) racing this method's Task.Delay(500, ct) was observed
         // losing that race outright under load, and a Task.Delay(100)-then-cancel
         // replacement still relies on the same timer infrastructure being prompt.
-        // Acquire() on free resources needs no polling at all, so it completes
-        // fully synchronously - by the time ExecuteAsync returns a Task here,
-        // its async state machine is *guaranteed* (by the language, not by timing)
-        // to already be parked at its only await, Task.Delay(500, ct). Cancelling
-        // immediately afterward is therefore not a race at all.
+        // AcquireAsync() on free resources never actually awaits Task.Delay inside
+        // its own polling loop (TryMarkBusy succeeds on the first try), and
+        // awaiting an already-completed Task continues synchronously rather than
+        // yielding - so by the time ExecuteAsync returns a Task here, its async
+        // state machine is *guaranteed* (by the language, not by timing) to
+        // already be parked at its only real suspension point, Task.Delay(500, ct).
+        // Cancelling immediately afterward is therefore not a race at all.
         var executeTask = executor.ExecuteAsync(stage, cts.Token);
         cts.Cancel();
 

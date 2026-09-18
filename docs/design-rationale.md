@@ -82,9 +82,9 @@ Only what sits behind `ISensor` would change.
 `_ = EvaluateAndScheduleAsync()` rather than awaiting it inline.
 
 **Why:** the handler runs on the sensor's ticker thread. If it blocked that
-thread — e.g. waiting on `IResourceManager.Acquire`, which can legitimately
-wait up to its timeout — the sensor would stop ticking on time, silently
-degrading the "every 100ms" contract the exercise specifies.
+thread — e.g. waiting on `IResourceManager.AcquireAsync`, which can
+legitimately wait up to its timeout — the sensor would stop ticking on time,
+silently degrading the "every 100ms" contract the exercise specifies.
 
 **Trade-off:** fire-and-forget means the caller can't observe failures
 directly. That's why failure reporting was moved into `StageScheduler`

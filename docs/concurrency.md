@@ -209,8 +209,8 @@ Two threads could both see `Idle` and both transition to `Busy`, violating exclu
 
 - `Resource.TryMarkBusy()` performs the check and the transition inside a
   single `lock (_lock) { ... }` block, so there is no window between them.
-- `ResourceManager.Acquire` only ever calls this one atomic method — it never
-  reads `State` and decides separately whether to call a setter.
+- `ResourceManager.AcquireAsync` only ever calls this one atomic method — it
+  never reads `State` and decides separately whether to call a setter.
 
 ### Order‑Violation Example
 

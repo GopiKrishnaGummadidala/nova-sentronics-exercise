@@ -11,7 +11,8 @@ public class StageSchedulerTests
     // A ceiling, not a typical duration - these waits return as soon as their
     // signal arrives. Widened from 2s after observing an occasional miss when
     // the full suite runs alongside StageMapResourceContentionTests, which adds
-    // substantial real thread-pool load of its own (heavy Acquire polling).
+    // real load of its own from genuine resource contention (its stage map is
+    // deliberately built so only one of its stages can hold resources at a time).
     private static readonly TimeSpan WaitCeiling = TimeSpan.FromSeconds(5);
 
 

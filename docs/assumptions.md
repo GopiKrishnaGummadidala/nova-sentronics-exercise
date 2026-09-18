@@ -5,8 +5,32 @@ This document lists key assumptions made in the design and implementation.
 ## Rule Evaluation Semantics
 
 - When multiple rules match on a sensor update, the system executes the **union** of all stages indicated by matching rules.
-- This behavior is implemented by `UnionRuleEvaluationPolicy`.
+- This behavior is implemented by `UnionRuleEvaluationPolicy`, which folds
+  every matching rule's stages into a single `HashSet<StageId>` — so a stage
+  named by more than one matching rule is only scheduled once, not once per
+  rule that named it.
 - The design allows alternative policies (e.g., priority‑based) by implementing `IRuleEvaluationPolicy`.
+
+### Worked example
+
+Against the three rules in `DefaultRules.Create()` — rule 1: Temperature
+over 10.0 and Pressure under 100 → `{Stage1, Stage2}`; rule 2: Temperature
+over 5.0 and Pressure under 50 → `{Stage3, Stage2}`; rule 3: Temperature
+over 20.0 and Pressure under 100 → `{Stage1, Stage3}` — a few representative
+readings:
+
+| Temperature | Pressure | Rules that match | Union result |
+|---|---|---|---|
+| 25 | 30 | all three | `{Stage1, Stage2, Stage3}` |
+| 15 | 80 | rule 1 only | `{Stage1, Stage2}` |
+| 8 | 40 | rule 2 only | `{Stage2, Stage3}` |
+| 3 | 200 | none | `{}` — no stage is scheduled |
+
+The first row is the one that actually demonstrates "union": `Stage2` is
+named by both rule 1 and rule 2, and `Stage3` by both rule 2 and rule 3, but
+each appears exactly once in the result — this is a deduplicated set, not a
+concatenated list. The last row is worth keeping in mind too: a sensor
+reading that matches nothing is a normal, silent no-op, not an error.
 
 ## Stage Lifecycle
 

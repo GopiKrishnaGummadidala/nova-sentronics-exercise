@@ -116,12 +116,17 @@ Responsibilities:
   `RuleEngine` logs it via `LogRuleEvaluationFailed`. If a sensor's own
   value-generator or a `ReadingChanged` subscriber throws, `SimulatedSensor`
   logs it via `LogSensorReadingFailed`.
+- Every line is prefixed `[AUDIT]` for normal operation or `[ERROR]` for a
+  failure, so the two are visually distinguishable at a glance without
+  reading into the line — `[ERROR]` is the conventional severity word;
+  `[AUDIT]`/`[ERROR]` is a presentation detail of `SystemLogger` only, not a
+  distinction the `ISystemLogger` interface itself makes.
 - Example log lines:
 
   ```text
   [AUDIT] 2026-09-16 13:25:10.123 | Stage=Stage1 | Sensors=Temperature:15.23, Pressure:78.90 | Resources=R_A, R_B
-  [AUDIT] 2026-09-16 13:25:15.456 | Stage=Stage2 | FAILED | TimeoutException: Timed out waiting for resource R_C to become available (requested: R_B, R_C, timeout: 00:00:05)
-  [AUDIT] 2026-09-16 13:25:20.789 | Sensor=Temperature | FAILED | InvalidOperationException: Simulated sensor fault
+  [ERROR] 2026-09-16 13:25:15.456 | Stage=Stage2 | FAILED | TimeoutException: Timed out waiting for resource R_C to become available (requested: R_B, R_C, timeout: 00:00:05)
+  [ERROR] 2026-09-16 13:25:20.789 | Sensor=Temperature | FAILED | InvalidOperationException: Simulated sensor fault
   ```
 
 - The logging abstraction allows swapping `SystemLogger` for other implementations (e.g., file-based or structured logging) without modifying core components.

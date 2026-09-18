@@ -28,7 +28,7 @@ public sealed class SystemLogger : ISystemLogger
     public void LogStageFailed(StageId stageId, Exception exception, DateTimeOffset timestamp)
     {
         Console.WriteLine(
-            $"[AUDIT] {timestamp:yyyy-MM-dd HH:mm:ss.fff} | " +
+            $"[ERROR] {timestamp:yyyy-MM-dd HH:mm:ss.fff} | " +
             $"Stage={stageId} | FAILED | " +
             $"{exception.GetType().Name}: {exception.Message}"
         );
@@ -43,7 +43,7 @@ public sealed class SystemLogger : ISystemLogger
         var p = sensorValues.GetValueOrDefault(SensorType.Pressure, 0);
 
         Console.WriteLine(
-            $"[AUDIT] {timestamp:yyyy-MM-dd HH:mm:ss.fff} | " +
+            $"[ERROR] {timestamp:yyyy-MM-dd HH:mm:ss.fff} | " +
             $"RuleEvaluation FAILED | " +
             $"Sensors=Temperature:{t:F2}, Pressure:{p:F2} | " +
             $"{exception.GetType().Name}: {exception.Message}"
@@ -53,7 +53,7 @@ public sealed class SystemLogger : ISystemLogger
     public void LogSensorReadingFailed(SensorType sensorType, Exception exception, DateTimeOffset timestamp)
     {
         Console.WriteLine(
-            $"[AUDIT] {timestamp:yyyy-MM-dd HH:mm:ss.fff} | " +
+            $"[ERROR] {timestamp:yyyy-MM-dd HH:mm:ss.fff} | " +
             $"Sensor={sensorType} | FAILED | " +
             $"{exception.GetType().Name}: {exception.Message}"
         );

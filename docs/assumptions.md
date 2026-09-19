@@ -116,6 +116,44 @@ reading that matches nothing is a normal, silent no-op, not an error.
   throws.
 - This console-based logging could be replaced by a persistent logging mechanism (file, database, or centralized logging service) without changing the core logic.
 
+## Shutdown Behavior
+
+- **Graceful shutdown (Ctrl+C):** `Console.CancelKeyPress` cancels a
+  top-level `CancellationTokenSource`, which breaks the infinite
+  `Task.Delay` that `Program.cs` is otherwise awaiting. The `finally` block
+  then calls `RuleEngine.Stop()` and disposes both sensors —
+  `SimulatedSensor.Dispose()` blocks until its ticker loop has actually
+  exited, not just been asked to — before printing `"System stopped."`. The
+  DI container's own disposal, triggered when `Program.cs`'s top-level
+  `using var provider = ...` reaches the end of its scope, then disposes the
+  `RuleEngine` singleton, which unsubscribes it from
+  `SensorRegistered`/`SensorUnregistered` and every sensor's `ReadingChanged`.
+- **An unexpected kill** (`taskkill /F`, `kill -9`, closing the terminal,
+  power loss): none of the above runs — the OS reclaims the process
+  immediately, and `Console.CancelKeyPress` never fires. This is deliberately
+  not a problem here: the system is in-memory only (see above), so there is
+  no persisted state to leave corrupted or half-written, and nothing to
+  reconcile on the next run. The next start builds a completely fresh
+  `ResourceManager` (all resources `Idle`), registry, and engine.
+- **An unhandled exception during normal operation:** every point where
+  extensible/pluggable code can throw — a rule predicate, a stage executor, a
+  sensor's value-generator or `ReadingChanged` subscriber — is caught and
+  logged via `ISystemLogger` rather than left to propagate (see "Error
+  Handling" above). A global `AppDomain.CurrentDomain.UnhandledException`
+  handler in `Program.cs` exists as a last resort beyond those specific
+  paths — e.g. a bug in a brand-new extension point nobody has wrapped in a
+  try/catch yet — and writes directly to `Console.Error` rather than through
+  `ISystemLogger`, since by the time it fires the process is already
+  terminating unconditionally (true for every unhandled exception on .NET
+  Core and later) and its state can't be trusted enough to route through
+  more abstraction than necessary. It cannot prevent the crash, and does not
+  suppress .NET's own default crash dump — it only guarantees a recognizable
+  `[ERROR]` line is printed before that dump, verified directly against a
+  deliberately-thrown exception on a raw background thread rather than
+  assumed. Not covered by an automated test: genuinely triggering this event
+  inside a test run would itself crash the test process, which is exactly
+  what the event signals is about to happen.
+
 ## Concurrency Model
 
 - .NET `Task`‑based asynchronous pattern is used for stage execution.

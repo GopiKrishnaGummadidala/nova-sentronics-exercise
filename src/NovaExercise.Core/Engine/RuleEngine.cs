@@ -8,7 +8,7 @@ namespace NovaExercise.Core.Engine;
 
 public sealed class RuleEngine : IRuleEngine, IDisposable
 {
-    private readonly ISensorRegistry _sensors;
+    private readonly ISensorRegistry _sensorRegistry;
     private readonly IReadOnlyList<StageRule> _rules;
     private readonly IRuleEvaluationPolicy _policy;
     private readonly IStageScheduler _scheduler;
@@ -26,22 +26,22 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
     private readonly HashSet<SensorType> _subscribedTypes = new();
 
     public RuleEngine(
-        ISensorRegistry sensors,
+        ISensorRegistry sensorRegistry,
         IReadOnlyList<StageRule> rules,
         IRuleEvaluationPolicy policy,
         IStageScheduler scheduler,
         ISystemLogger logger)
     {
-        _sensors = sensors;
+        _sensorRegistry = sensorRegistry;
         _rules = rules;
         _policy = policy;
         _scheduler = scheduler;
         _logger = logger;
 
-        _sensors.SensorRegistered += OnSensorRegistered;
-        _sensors.SensorUnregistered += OnSensorUnregistered;
+        _sensorRegistry.SensorRegistered += OnSensorRegistered;
+        _sensorRegistry.SensorUnregistered += OnSensorUnregistered;
 
-        foreach (var sensor in _sensors.Sensors)
+        foreach (var sensor in _sensorRegistry.Sensors)
         {
             SubscribeToSensor(sensor);
         }
@@ -118,9 +118,9 @@ public sealed class RuleEngine : IRuleEngine, IDisposable
     {
         Stop();
         _cts.Dispose();
-        _sensors.SensorRegistered -= OnSensorRegistered;
-        _sensors.SensorUnregistered -= OnSensorUnregistered;
-        foreach (var sensor in _sensors.Sensors)
+        _sensorRegistry.SensorRegistered -= OnSensorRegistered;
+        _sensorRegistry.SensorUnregistered -= OnSensorUnregistered;
+        foreach (var sensor in _sensorRegistry.Sensors)
             sensor.ReadingChanged -= OnReadingChanged;
     }
 }

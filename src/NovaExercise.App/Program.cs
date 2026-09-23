@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 using NovaExercise.App;
@@ -36,6 +37,17 @@ Console.CancelKeyPress += (_, e) =>
     cts.Cancel();
 };
 
+// Read from appsettings.json, overridable by an environment variable -
+// changing the tick rate is then an edit-and-restart, not a rebuild-and-
+// redeploy. optional: true means a missing file just falls through to the
+// 100ms default below rather than crashing the app.
+var configuration = new ConfigurationBuilder()
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables()
+    .Build();
+
+var sensorTickInterval = TimeSpan.FromMilliseconds(configuration.GetValue("SensorTickIntervalMs", 100));
+
 var services = new ServiceCollection();
 services.AddNovaExerciseServices();
 
@@ -51,13 +63,15 @@ var logger = provider.GetRequiredService<ISystemLogger>();
 var tempSensor = new SimulatedSensor(
     SensorType.Temperature,
     () => 15 + Random.Shared.NextDouble() * 10, // 15–25 → always > 10, often > 20
-    logger
+    logger,
+    sensorTickInterval
 );
 
 var pressureSensor = new SimulatedSensor(
     SensorType.Pressure,
     () => 40 + Random.Shared.NextDouble() * 40, // 40–80 → always < 100, sometimes < 50
-    logger
+    logger,
+    sensorTickInterval
 );
 
 var registry = provider.GetRequiredService<ISensorRegistry>();

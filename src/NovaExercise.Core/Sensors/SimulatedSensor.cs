@@ -4,6 +4,8 @@ namespace NovaExercise.Core.Sensors;
 
 public sealed class SimulatedSensor : ISensor, IDisposable
 {
+    private static readonly TimeSpan DefaultTickInterval = TimeSpan.FromMilliseconds(100);
+
     public SensorType Type { get; }
     public SensorReading? CurrentReading { get; private set; }
 
@@ -13,12 +15,18 @@ public sealed class SimulatedSensor : ISensor, IDisposable
     private readonly Task _tickerTask;
     private readonly Func<double> _valueGenerator;
     private readonly ISystemLogger _logger;
+    private readonly TimeSpan _tickInterval;
 
-    public SimulatedSensor(SensorType type, Func<double> valueGenerator, ISystemLogger logger)
+    /// <param name="tickInterval">How often to generate a new reading. Defaults to
+    /// 100ms (the exercise's stated sensor-module cadence) when not specified -
+    /// callers that need it externally configurable (see Program.cs) pass it in
+    /// explicitly instead of this class reading configuration itself.</param>
+    public SimulatedSensor(SensorType type, Func<double> valueGenerator, ISystemLogger logger, TimeSpan? tickInterval = null)
     {
         Type = type;
         _valueGenerator = valueGenerator;
         _logger = logger;
+        _tickInterval = tickInterval ?? DefaultTickInterval;
         _tickerTask = Task.Run(() => RunLoop(_cts.Token));
     }
 
@@ -45,7 +53,7 @@ public sealed class SimulatedSensor : ISensor, IDisposable
                 _logger.LogSensorReadingFailed(Type, ex, DateTimeOffset.Now);
             }
 
-            Thread.Sleep(100);
+            Thread.Sleep(_tickInterval);
         }
     }
 
